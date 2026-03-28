@@ -5,7 +5,7 @@ import cloudinary
 import cloudinary.uploader
 
 # -----------------------
-# CLOUDINARY CONFIG
+# CONFIG
 # -----------------------
 cloudinary.config(
     cloud_name=st.secrets["cloudinary"]["cloud_name"],
@@ -13,9 +13,6 @@ cloudinary.config(
     api_secret=st.secrets["cloudinary"]["api_secret"]
 )
 
-# -----------------------
-# GOOGLE SHEETS
-# -----------------------
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -42,7 +39,7 @@ if "page" not in st.session_state:
 if st.session_state.page == "home":
 
     st.title("🏠 Verified PGs")
-    st.caption("No filters. Only real data.")
+    st.caption("No filters. Only real PGs.")
 
     data = pg_sheet.get_all_records()
 
@@ -80,14 +77,20 @@ elif st.session_state.page == "detail":
     if pg["verified"] == "Yes":
         st.success("✅ Verified by Us")
 
-    # IMAGES
-    st.subheader("📸 Images")
-    for img in str(pg.get("images", "")).split(","):
+    # IMAGE GALLERY
+    st.subheader("📸 Gallery")
+
+    images = str(pg.get("images", "")).split(",")
+
+    cols = st.columns(2)
+
+    for i, img in enumerate(images):
         if img.strip().startswith("http"):
-            st.image(img.strip())
+            cols[i % 2].image(img.strip(), use_container_width=True)
 
     # VIDEOS
     st.subheader("🎥 Videos")
+
     for vid in str(pg.get("videos", "")).split(","):
         if vid.strip().startswith("http"):
             st.video(vid.strip())
@@ -126,39 +129,48 @@ elif st.session_state.page == "admin":
     location = st.text_input("Location")
     verified = st.selectbox("Verified", ["Yes", "No"])
 
-    # FILE UPLOAD
-    uploaded_files = st.file_uploader(
-        "Upload Images / Videos",
+    # IMAGE UPLOAD
+    st.subheader("📸 Upload Images")
+    image_files = st.file_uploader(
+        "Images",
         accept_multiple_files=True,
-        type=["jpg", "png", "jpeg", "mp4"]
+        type=["jpg", "png", "jpeg"],
+        key="img_upload"
     )
 
-    uploaded_urls = []
+    # VIDEO UPLOAD
+    st.subheader("🎥 Upload Videos")
+    video_files = st.file_uploader(
+        "Videos",
+        accept_multiple_files=True,
+        type=["mp4"],
+        key="vid_upload"
+    )
 
-    if uploaded_files:
-        for file in uploaded_files:
+    image_urls = []
+    video_urls = []
 
-            result = cloudinary.uploader.upload(
-                file,
-                resource_type="auto"
-            )
+    # UPLOAD IMAGES
+    if image_files:
+        for file in image_files:
+            res = cloudinary.uploader.upload(file)
+            image_urls.append(res["secure_url"])
 
-            uploaded_urls.append(result["secure_url"])
-
-        st.success("✅ Uploaded to Cloud!")
+    # UPLOAD VIDEOS
+    if video_files:
+        for file in video_files:
+            res = cloudinary.uploader.upload(file, resource_type="video")
+            video_urls.append(res["secure_url"])
 
     # SAVE
     if st.button("Save PG"):
-
-        images = ",".join([u for u in uploaded_urls if ".mp4" not in u])
-        videos = ",".join([u for u in uploaded_urls if ".mp4" in u])
 
         pg_sheet.append_row([
             name,
             location,
             verified,
-            images,
-            videos
+            ",".join(image_urls),
+            ",".join(video_urls)
         ])
 
         st.success("PG Added Successfully!")
@@ -196,8 +208,47 @@ elif st.session_state.page == "admin":
             new_status = "No" if pg["verified"] == "Yes" else "Yes"
 
             pg_sheet.update_cell(row_index, 3, new_status)
-
-            st.success(f"Updated to {new_status}")
             st.rerun()
+
+        # UPDATE MEDIA
+        with st.expander("✏️ Update Media"):
+
+            new_images = st.file_uploader(
+                "Update Images",
+                accept_multiple_files=True,
+                type=["jpg","png","jpeg"],
+                key=f"img{i}"
+            )
+
+            new_videos = st.file_uploader(
+                "Update Videos",
+                accept_multiple_files=True,
+                type=["mp4"],
+                key=f"vid{i}"
+            )
+
+            if st.button("Update", key=f"u{i}"):
+
+                img_urls = []
+                vid_urls = []
+
+                if new_images:
+                    for file in new_images:
+                        res = cloudinary.uploader.upload(file)
+                        img_urls.append(res["secure_url"])
+
+                if new_videos:
+                    for file in new_videos:
+                        res = cloudinary.uploader.upload(file, resource_type="video")
+                        vid_urls.append(res["secure_url"])
+
+                if img_urls:
+                    pg_sheet.update_cell(row_index, 4, ",".join(img_urls))
+
+                if vid_urls:
+                    pg_sheet.update_cell(row_index, 5, ",".join(vid_urls))
+
+                st.success("Updated!")
+                st.rerun()
 
         st.divider()
