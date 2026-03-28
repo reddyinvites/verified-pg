@@ -1,9 +1,20 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+import cloudinary
+import cloudinary.uploader
 
 # -----------------------
-# GOOGLE SHEETS SETUP
+# CLOUDINARY CONFIG
+# -----------------------
+cloudinary.config(
+    cloud_name=st.secrets["cloudinary"]["cloud_name"],
+    api_key=st.secrets["cloudinary"]["api_key"],
+    api_secret=st.secrets["cloudinary"]["api_secret"]
+)
+
+# -----------------------
+# GOOGLE SHEETS
 # -----------------------
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -16,7 +27,6 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# ✅ YOUR SHEET ID
 sheet = client.open_by_key("191Fg2-jLtpvziqFrUdQNV2ki1iXYe_fdTGYv3_Tm7wA")
 pg_sheet = sheet.sheet1
 
@@ -32,7 +42,7 @@ if "page" not in st.session_state:
 if st.session_state.page == "home":
 
     st.title("🏠 Verified PGs")
-    st.caption("No filters. No fake photos. Only reality.")
+    st.caption("No filters. Only real data.")
 
     data = pg_sheet.get_all_records()
 
@@ -46,8 +56,8 @@ if st.session_state.page == "home":
         else:
             st.warning("Not Verified")
 
-        if st.button(f"View Details - {pg['name']}"):
-            st.session_state.selected_pg = pg
+        if st.button(f"View {pg['name']}"):
+            st.session_state.pg = pg
             st.session_state.page = "detail"
             st.rerun()
 
@@ -62,7 +72,7 @@ if st.session_state.page == "home":
 # -----------------------
 elif st.session_state.page == "detail":
 
-    pg = st.session_state.selected_pg
+    pg = st.session_state.pg
 
     st.title(pg["name"])
     st.write(f"📍 {pg['location']}")
@@ -70,44 +80,24 @@ elif st.session_state.page == "detail":
     if pg["verified"] == "Yes":
         st.success("✅ Verified by Us")
 
-    # -----------------------
-    # IMAGES (SAFE)
-    # -----------------------
+    # IMAGES
     st.subheader("📸 Images")
+    for img in str(pg.get("images", "")).split(","):
+        if img.strip().startswith("http"):
+            st.image(img.strip())
 
-    images = str(pg.get("images", "")).split(",")
-
-    for img in images:
-        img = img.strip()
-
-        if img.startswith("http"):
-            try:
-                st.image(img)
-            except:
-                st.warning("⚠️ Invalid image skipped")
-
-    # -----------------------
-    # VIDEOS (SAFE)
-    # -----------------------
+    # VIDEOS
     st.subheader("🎥 Videos")
-
-    videos = str(pg.get("videos", "")).split(",")
-
-    for vid in videos:
-        vid = vid.strip()
-
-        if vid.startswith("http"):
-            try:
-                st.video(vid)
-            except:
-                st.warning("⚠️ Invalid video skipped")
+    for vid in str(pg.get("videos", "")).split(","):
+        if vid.strip().startswith("http"):
+            st.video(vid.strip())
 
     if st.button("⬅ Back"):
         st.session_state.page = "home"
         st.rerun()
 
 # -----------------------
-# ADMIN
+# ADMIN PANEL
 # -----------------------
 elif st.session_state.page == "admin":
 
@@ -120,7 +110,6 @@ elif st.session_state.page == "admin":
 
     st.success("Logged in")
 
-    # LOGOUT
     if st.button("🚪 Logout"):
         st.session_state.clear()
         st.session_state.page = "home"
@@ -137,17 +126,32 @@ elif st.session_state.page == "admin":
     location = st.text_input("Location")
     verified = st.selectbox("Verified", ["Yes", "No"])
 
-    images = st.text_input(
-        "Image URLs (comma separated)",
-        placeholder="https://image1, https://image2"
+    # FILE UPLOAD
+    uploaded_files = st.file_uploader(
+        "Upload Images / Videos",
+        accept_multiple_files=True,
+        type=["jpg", "png", "jpeg", "mp4"]
     )
 
-    videos = st.text_input(
-        "Video URLs (comma separated)",
-        placeholder="https://video1, https://video2"
-    )
+    uploaded_urls = []
 
+    if uploaded_files:
+        for file in uploaded_files:
+
+            result = cloudinary.uploader.upload(
+                file,
+                resource_type="auto"
+            )
+
+            uploaded_urls.append(result["secure_url"])
+
+        st.success("✅ Uploaded to Cloud!")
+
+    # SAVE
     if st.button("Save PG"):
+
+        images = ",".join([u for u in uploaded_urls if ".mp4" not in u])
+        videos = ",".join([u for u in uploaded_urls if ".mp4" in u])
 
         pg_sheet.append_row([
             name,
@@ -157,13 +161,13 @@ elif st.session_state.page == "admin":
             videos
         ])
 
-        st.success("PG Added!")
+        st.success("PG Added Successfully!")
         st.rerun()
 
     st.divider()
 
     # -----------------------
-    # MANAGE PGs
+    # MANAGE PG
     # -----------------------
     st.subheader("📋 Manage PGs")
 
