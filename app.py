@@ -15,7 +15,7 @@ if "admin_logged" not in st.session_state:
     st.session_state.admin_logged = False
 
 # -----------------------
-# GOOGLE SHEETS (FIXED)
+# GOOGLE SHEETS
 # -----------------------
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -28,9 +28,7 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# ✅ YOUR REAL SHEET ID
 sheet = client.open_by_key("191Fg2-jLtpvziqFrUdQNV2ki1iXYe_fdTGYv3_Tm7wA")
-
 pg_sheet = sheet.sheet1
 
 # -----------------------
@@ -48,8 +46,11 @@ if st.session_state.page == "home":
         st.subheader(pg.get("name", "No Name"))
         st.write(f"📍 {pg.get('location', '')}")
 
+        # ✅ VERIFIED STATUS SHOW
         if pg.get("verified") == "Yes":
             st.success("✅ Verified by Us")
+        else:
+            st.warning("❌ Not Verified")
 
         if st.button("View Details", key=f"view{i}"):
             st.session_state.selected_pg = pg
@@ -74,14 +75,15 @@ elif st.session_state.page == "detail":
     st.title(pg.get("name", "PG"))
     st.write(f"📍 {pg.get('location', '')}")
 
-    st.success("✅ Verified by Us")
+    if pg.get("verified") == "Yes":
+        st.success("✅ Verified by Us")
 
     # IMAGES
     st.subheader("📸 Images")
     images = pg.get("images", "").split(",")
 
     for img in images:
-        if img:
+        if img.strip():
             st.image(img)
 
     # VIDEOS
@@ -89,7 +91,7 @@ elif st.session_state.page == "detail":
     videos = pg.get("videos", "").split(",")
 
     for vid in videos:
-        if vid:
+        if vid.strip():
             st.video(vid)
 
     st.markdown("""
@@ -154,7 +156,7 @@ elif st.session_state.page == "admin":
 
     st.divider()
 
-    # MANAGE
+    # MANAGE PGs
     st.subheader("📋 Manage PGs")
 
     data = pg_sheet.get_all_records()
@@ -165,13 +167,24 @@ elif st.session_state.page == "admin":
 
         col1, col2 = st.columns(2)
 
+        # DELETE
         if col1.button("❌ Delete", key=f"d{i}"):
             pg_sheet.delete_rows(i + 2)
             st.rerun()
 
+        # ✅ FIXED TOGGLE VERIFY
         if col2.button("Toggle Verify", key=f"v{i}"):
-            new = "No" if pg.get("verified") == "Yes" else "Yes"
+
+            current = pg.get("verified", "No")
+
+            if current == "Yes":
+                new = "No"
+            else:
+                new = "Yes"
+
             pg_sheet.update_cell(i + 2, 3, new)
+
+            st.success(f"Updated to {new}")
             st.rerun()
 
         st.divider()
