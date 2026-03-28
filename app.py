@@ -1,7 +1,6 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-import uuid
 
 # -----------------------
 # SESSION
@@ -16,7 +15,7 @@ if "admin_logged" not in st.session_state:
     st.session_state.admin_logged = False
 
 # -----------------------
-# GOOGLE SHEETS
+# GOOGLE SHEETS (FIXED)
 # -----------------------
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -29,11 +28,13 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-sheet = client.open_by_key("YOUR_SHEET_ID")
+# ✅ YOUR REAL SHEET ID
+sheet = client.open_by_key("191Fg2-jLtpvziqFrUdQNV2ki1iXYe_fdTGYv3_Tm7wA")
+
 pg_sheet = sheet.sheet1
 
 # -----------------------
-# HOME
+# HOME PAGE
 # -----------------------
 if st.session_state.page == "home":
 
@@ -44,8 +45,8 @@ if st.session_state.page == "home":
 
     for i, pg in enumerate(data):
 
-        st.subheader(pg["name"])
-        st.write(f"📍 {pg['location']}")
+        st.subheader(pg.get("name", "No Name"))
+        st.write(f"📍 {pg.get('location', '')}")
 
         if pg.get("verified") == "Yes":
             st.success("✅ Verified by Us")
@@ -59,27 +60,24 @@ if st.session_state.page == "home":
 
     col1, col2 = st.columns(2)
 
-    if col1.button("👤 User"):
-        st.session_state.page = "home"
-
     if col2.button("👨‍💼 Admin"):
         st.session_state.page = "admin"
         st.rerun()
 
 # -----------------------
-# PG DETAIL PAGE
+# DETAIL PAGE
 # -----------------------
 elif st.session_state.page == "detail":
 
     pg = st.session_state.selected_pg
 
-    st.title(pg["name"])
-    st.write(f"📍 {pg['location']}")
+    st.title(pg.get("name", "PG"))
+    st.write(f"📍 {pg.get('location', '')}")
 
     st.success("✅ Verified by Us")
 
     # IMAGES
-    st.subheader("📸 Real Images")
+    st.subheader("📸 Images")
     images = pg.get("images", "").split(",")
 
     for img in images:
@@ -87,7 +85,7 @@ elif st.session_state.page == "detail":
             st.image(img)
 
     # VIDEOS
-    st.subheader("🎥 Video")
+    st.subheader("🎥 Videos")
     videos = pg.get("videos", "").split(",")
 
     for vid in videos:
@@ -96,7 +94,7 @@ elif st.session_state.page == "detail":
 
     st.markdown("""
     ✔ Real room  
-    ✔ Bathroom reality  
+    ✔ Bathroom  
     ✔ Food  
     ✔ Dining  
     ✔ Storage  
@@ -131,70 +129,39 @@ elif st.session_state.page == "admin":
 
     st.divider()
 
-    # -----------------------
     # ADD PG
-    # -----------------------
     st.subheader("➕ Add PG")
 
     name = st.text_input("PG Name")
     location = st.text_input("Location")
     verified = st.selectbox("Verified", ["Yes", "No"])
-
-    # IMAGE UPLOAD
-    uploaded_images = st.file_uploader(
-        "Upload Images",
-        accept_multiple_files=True,
-        type=["jpg", "png", "jpeg"]
-    )
-
-    # VIDEO UPLOAD
-    uploaded_videos = st.file_uploader(
-        "Upload Videos",
-        accept_multiple_files=True,
-        type=["mp4"]
-    )
+    images = st.text_input("Image URLs (comma separated)")
+    videos = st.text_input("Video URLs (comma separated)")
 
     if st.button("Save PG"):
-
-        image_urls = []
-        video_urls = []
-
-        # 🔥 TEMP STORAGE (Streamlit Cloud)
-        for img in uploaded_images:
-            path = f"images/{uuid.uuid4()}.png"
-            with open(path, "wb") as f:
-                f.write(img.read())
-            image_urls.append(path)
-
-        for vid in uploaded_videos:
-            path = f"videos/{uuid.uuid4()}.mp4"
-            with open(path, "wb") as f:
-                f.write(vid.read())
-            video_urls.append(path)
-
-        pg_sheet.append_row([
-            name,
-            location,
-            verified,
-            ",".join(image_urls),
-            ",".join(video_urls)
-        ])
-
-        st.success("PG Added!")
-        st.rerun()
+        if name and location:
+            pg_sheet.append_row([
+                name,
+                location,
+                verified,
+                images,
+                videos
+            ])
+            st.success("PG Added!")
+            st.rerun()
+        else:
+            st.error("Fill all fields")
 
     st.divider()
 
-    # -----------------------
-    # MANAGE PG
-    # -----------------------
+    # MANAGE
     st.subheader("📋 Manage PGs")
 
     data = pg_sheet.get_all_records()
 
     for i, pg in enumerate(data):
 
-        st.write(f"{pg['name']} - {pg['location']}")
+        st.write(f"{pg.get('name')} - {pg.get('location')}")
 
         col1, col2 = st.columns(2)
 
@@ -203,7 +170,7 @@ elif st.session_state.page == "admin":
             st.rerun()
 
         if col2.button("Toggle Verify", key=f"v{i}"):
-            new = "No" if pg["verified"] == "Yes" else "Yes"
+            new = "No" if pg.get("verified") == "Yes" else "Yes"
             pg_sheet.update_cell(i + 2, 3, new)
             st.rerun()
 
