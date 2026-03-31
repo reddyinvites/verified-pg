@@ -26,11 +26,12 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# MAIN SHEET
+# -----------------------
+# SHEETS
+# -----------------------
 sheet = client.open_by_key("1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q")
 pg_sheet = sheet.sheet1
 
-# VERIFIED SHEET
 verified_sheet = client.open("verified_pg").sheet1
 
 # -----------------------
@@ -40,23 +41,26 @@ if "page" not in st.session_state:
     st.session_state.page = "home"
 
 # -----------------------
-# SAFE DATA
+# SYNC VERIFIED
 # -----------------------
-def get_pg_data():
+def sync_verified_pg():
     try:
-        data_raw = pg_sheet.get_all_values()
+        data = pg_sheet.get_all_values()
+        if len(data) < 2:
+            return
 
-        if not data_raw or len(data_raw) < 2:
-            return []
+        headers = data[0]
+        rows = data[1:]
 
-        headers = data_raw[0]
-        rows = data_raw[1:]
-        rows = [r for r in rows if len(r) >= 3 and r[0].strip()]
+        verified_sheet.clear()
+        verified_sheet.append_row(headers)
 
-        return [dict(zip(headers, row)) for row in rows]
+        for row in rows:
+            if len(row) >= 3 and row[2].strip() == "Yes":
+                verified_sheet.append_row(row)
 
-    except:
-        return []
+    except Exception as e:
+        st.warning(f"Sync error: {e}")
 
 # -----------------------
 # HOME
@@ -64,23 +68,19 @@ def get_pg_data():
 if st.session_state.page == "home":
 
     st.title("🏠 Verified PGs")
-    st.caption("Filters kaadu… reality chupistham")
 
-    data = get_pg_data()
+    try:
+        data = verified_sheet.get_all_records()
+    except:
+        data = []
 
     for i, pg in enumerate(data):
 
         name = pg.get("name", "")
         location = pg.get("location", "")
-        verified = pg.get("verified", "")
 
-        st.subheader(name)
+        st.subheader(f"🏠 {name}")
         st.write(f"📍 {location}")
-
-        if verified == "Yes":
-            st.success("✅ Verified by Us")
-        else:
-            st.warning("Not Verified")
 
         if st.button(f"View {name}", key=f"view_{i}"):
             st.session_state.pg = pg
@@ -105,27 +105,24 @@ elif st.session_state.page == "detail":
 
     if pg.get("verified") == "Yes":
         st.success("✅ Verified by Us")
-        st.caption("⚠ No Filters • No Editing • Real Capture")
 
+    # images
     raw = str(pg.get("images", ""))
     sections = raw.split("|")
     sections += [""] * (6 - len(sections))
 
-    def show_section(title, items):
-        if items and items[0]:
-            st.subheader(title)
+    titles = ["🏠 Room", "🚿 Bathroom", "🍛 Food", "🍽️ Dining", "🧳 Storage", "📍 Outside"]
+
+    for idx, sec in enumerate(sections):
+        imgs = sec.split(",")
+        if imgs and imgs[0]:
+            st.subheader(titles[idx])
             cols = st.columns(2)
-            for i, img in enumerate(items):
+            for i, img in enumerate(imgs):
                 if img.startswith("http"):
                     cols[i % 2].image(img, use_container_width=True)
 
-    show_section("🏠 Room", sections[0].split(","))
-    show_section("🚿 Bathroom", sections[1].split(","))
-    show_section("🍛 Food", sections[2].split(","))
-    show_section("🍽️ Dining", sections[3].split(","))
-    show_section("🧳 Storage", sections[4].split(","))
-    show_section("📍 Outside", sections[5].split(","))
-
+    # videos
     for vid in str(pg.get("videos", "")).split(","):
         if vid.startswith("http"):
             st.video(vid)
@@ -151,111 +148,90 @@ elif st.session_state.page == "admin":
         st.session_state.page = "home"
         st.rerun()
 
+    # -----------------------
     # ADD PG
+    # -----------------------
     st.subheader("Add PG")
 
     name = st.text_input("Name")
     location = st.text_input("Location")
     verified = st.selectbox("Verified", ["Yes", "No"])
 
-    def upload(key):
+    def uploader(key):
         return st.file_uploader(key, accept_multiple_files=True, key=key)
 
-    room = upload("room")
-    bath = upload("bath")
-    food = upload("food")
-    dining = upload("dining")
-    storage = upload("storage")
-    outside = upload("outside")
-
+    room = uploader("room")
+    bath = uploader("bath")
+    food = uploader("food")
+    dining = uploader("dining")
+    storage = uploader("storage")
+    outside = uploader("outside")
     videos = st.file_uploader("videos", accept_multiple_files=True)
 
     # -----------------------
-    # FIXED SAVE PG
+    # SAVE (FIXED)
     # -----------------------
     if st.button("Save PG"):
 
-        try:
-            if not name.strip() or not location.strip():
-                st.error("Enter name & location")
-                st.stop()
+        if not name.strip() or not location.strip():
+            st.error("Enter name & location")
+            st.stop()
 
-            def safe_join(files):
-                urls = []
-                if files:
-                    for f in files:
-                        try:
-                            res = cloudinary.uploader.upload(f)
-                            urls.append(res["secure_url"])
-                        except Exception as e:
-                            st.warning(f"Upload failed: {e}")
-                return ",".join(urls)
+        # STEP 1: SAVE BASIC DATA
+        pg_sheet.append_row([name, location, verified, "", ""])
+        row_index = len(pg_sheet.get_all_values())
 
-            def safe_video(files):
-                urls = []
-                if files:
-                    for f in files:
-                        try:
-                            res = cloudinary.uploader.upload(f, resource_type="video")
-                            urls.append(res["secure_url"])
-                        except Exception as e:
-                            st.warning(f"Video upload failed: {e}")
-                return ",".join(urls)
+        # STEP 2: UPLOAD
+        def upload(files, video=False):
+            urls = []
+            if files:
+                for f in files:
+                    try:
+                        res = cloudinary.uploader.upload(
+                            f, resource_type="video" if video else "image"
+                        )
+                        urls.append(res["secure_url"])
+                    except:
+                        pass
+            return ",".join(urls)
 
-            image_string = "|".join([
-                safe_join(room),
-                safe_join(bath),
-                safe_join(food),
-                safe_join(dining),
-                safe_join(storage),
-                safe_join(outside)
-            ])
+        image_string = "|".join([
+            upload(room),
+            upload(bath),
+            upload(food),
+            upload(dining),
+            upload(storage),
+            upload(outside)
+        ])
 
-            video_string = safe_video(videos)
+        video_string = upload(videos, True)
 
-            new_row = [
-                name.strip(),
-                location.strip(),
-                verified,
-                image_string,
-                video_string
-            ]
+        # STEP 3: UPDATE SHEET
+        pg_sheet.update_cell(row_index, 4, image_string)
+        pg_sheet.update_cell(row_index, 5, video_string)
 
-            st.write("Saving:", new_row)  # DEBUG
+        # STEP 4: SYNC VERIFIED
+        sync_verified_pg()
 
-            pg_sheet.append_row(new_row)
-
-            if verified == "Yes":
-                verified_sheet.append_row(new_row)
-
-            st.success("✅ Saved successfully!")
-            st.rerun()
-
-        except Exception as e:
-            st.error(f"Save failed: {e}")
+        st.success("✅ Saved Successfully!")
+        st.rerun()
 
     # -----------------------
     # MANAGE PGs
     # -----------------------
     st.subheader("📋 Manage PGs")
 
-    data_raw = pg_sheet.get_all_values()
+    data = pg_sheet.get_all_values()
+    rows = data[1:]
 
-    headers = data_raw[0] if data_raw else []
-    rows = data_raw[1:] if len(data_raw) > 1 else []
+    for i, row in enumerate(rows):
 
-    rows = [r for r in rows if len(r) >= 3 and r[0].strip()]
-
-    for i in range(len(rows)):
-
-        row = rows[i]
-
-        name = row[0].strip() if len(row) > 0 else ""
-        location = row[1].strip() if len(row) > 1 else ""
-        verified = row[2].strip() if len(row) > 2 else "No"
-
-        if not name:
+        if len(row) < 3 or not row[0].strip():
             continue
+
+        name = row[0]
+        location = row[1]
+        verified = row[2]
 
         st.markdown(f"### 🏠 {name}")
         st.write(f"📍 {location}")
@@ -267,21 +243,17 @@ elif st.session_state.page == "admin":
 
         col1, col2 = st.columns(2)
 
-        if col1.button("❌ Delete", key=f"del_{i}"):
+        if col1.button("❌ Delete", key=f"d{i}"):
             pg_sheet.delete_rows(i + 2)
+            sync_verified_pg()
             st.rerun()
 
-        if col2.button("🔄 Toggle Verify", key=f"toggle_{i}"):
+        if col2.button("🔄 Toggle Verify", key=f"t{i}"):
 
-            new_status = "No" if verified == "Yes" else "Yes"
-            pg_sheet.update_cell(i + 2, 3, new_status)
+            new = "No" if verified == "Yes" else "Yes"
+            pg_sheet.update_cell(i + 2, 3, new)
 
-            rows[i][2] = new_status
-
-            if new_status == "Yes":
-                verified_sheet.append_row(row)
-
-            st.success(f"Now: {new_status}")
+            sync_verified_pg()
             st.rerun()
 
         st.divider()
