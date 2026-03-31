@@ -26,8 +26,9 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-sheet = client.open_by_key("191Fg2-jLtpvziqFrUdQNV2ki1iXYe_fdTGYv3_Tm7wA")
-pg_sheet = sheet.sheet1
+# ✅ CONNECT TO pg_data → Sheet1
+sheet = client.open("pg_data")
+pg_sheet = sheet.worksheet("Sheet1")
 
 # -----------------------
 # SESSION
@@ -47,6 +48,9 @@ def get_pg_data():
 
         headers = data_raw[0]
         rows = data_raw[1:]
+
+        # ✅ REMOVE EMPTY ROWS
+        rows = [r for r in rows if any(cell.strip() for cell in r)]
 
         return [dict(zip(headers, row)) for row in rows]
 
@@ -76,7 +80,6 @@ if st.session_state.page == "home":
         else:
             st.warning("Not Verified")
 
-        # ✅ UNIQUE BUTTON KEY FIX
         if st.button(f"View {pg.get('name','PG')}", key=f"view_{i}"):
             st.session_state.pg = pg
             st.session_state.page = "detail"
@@ -232,7 +235,7 @@ elif st.session_state.page == "admin":
 
     st.divider()
 
-    # MANAGE
+    # MANAGE PGs
     st.subheader("📋 Manage PGs")
 
     data_raw = pg_sheet.get_all_values()
@@ -244,9 +247,11 @@ elif st.session_state.page == "admin":
         headers = data_raw[0]
         rows = data_raw[1:]
 
+    # ✅ REMOVE EMPTY ROWS
+    rows = [r for r in rows if any(cell.strip() for cell in r)]
+
     for i in range(len(rows)):
 
-        row_index = i + 2
         pg = dict(zip(headers, rows[i]))
 
         st.write(f"🏠 {pg.get('name')} - {pg.get('location')}")
@@ -254,14 +259,17 @@ elif st.session_state.page == "admin":
 
         col1, col2 = st.columns(2)
 
+        # ✅ DELETE FIX
         if col1.button("❌ Delete", key=f"del_{i}"):
-            pg_sheet.delete_rows(row_index)
+            pg_sheet.delete_rows(i + 2)
+            st.success("Deleted!")
             st.rerun()
 
+        # ✅ TOGGLE FIX
         if col2.button("🔄 Toggle Verify", key=f"toggle_{i}"):
 
             new_status = "No" if pg.get("verified") == "Yes" else "Yes"
-            pg_sheet.update_cell(row_index, 3, new_status)
+            pg_sheet.update_cell(i + 2, 3, new_status)
             st.rerun()
 
         st.divider()
