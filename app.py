@@ -26,9 +26,9 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# ✅ CONNECT TO pg_data → Sheet1
-sheet = client.open("pg_data")
-pg_sheet = sheet.worksheet("Sheet1")
+# ✅ YOUR GOOGLE SHEET (FIXED)
+sheet = client.open_by_key("1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q")
+pg_sheet = sheet.sheet1
 
 # -----------------------
 # SESSION
@@ -49,12 +49,13 @@ def get_pg_data():
         headers = data_raw[0]
         rows = data_raw[1:]
 
-        # ✅ REMOVE EMPTY ROWS
+        # remove empty rows
         rows = [r for r in rows if any(cell.strip() for cell in r)]
 
         return [dict(zip(headers, row)) for row in rows]
 
     except Exception:
+        st.error("⚠️ Sheet not accessible. Check sharing permissions.")
         return []
 
 # -----------------------
@@ -247,7 +248,7 @@ elif st.session_state.page == "admin":
         headers = data_raw[0]
         rows = data_raw[1:]
 
-    # ✅ REMOVE EMPTY ROWS
+    # remove empty rows
     rows = [r for r in rows if any(cell.strip() for cell in r)]
 
     for i in range(len(rows)):
@@ -259,13 +260,11 @@ elif st.session_state.page == "admin":
 
         col1, col2 = st.columns(2)
 
-        # ✅ DELETE FIX
         if col1.button("❌ Delete", key=f"del_{i}"):
             pg_sheet.delete_rows(i + 2)
             st.success("Deleted!")
             st.rerun()
 
-        # ✅ TOGGLE FIX
         if col2.button("🔄 Toggle Verify", key=f"toggle_{i}"):
 
             new_status = "No" if pg.get("verified") == "Yes" else "Yes"
