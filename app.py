@@ -7,6 +7,8 @@ import cloudinary.uploader
 # -----------------------
 # CONFIG
 # -----------------------
+st.set_page_config(page_title="Verified PGs", layout="wide")
+
 cloudinary.config(
     cloud_name=st.secrets["cloudinary"]["cloud_name"],
     api_key=st.secrets["cloudinary"]["api_key"],
@@ -34,12 +36,12 @@ if "page" not in st.session_state:
     st.session_state.page = "home"
 
 # -----------------------
-# HOME
+# HOME PAGE
 # -----------------------
 if st.session_state.page == "home":
 
     st.title("🏠 Verified PGs")
-    st.caption("No filters. Only real PGs.")
+    st.caption("Filters kaadu… reality chupistham")
 
     data = pg_sheet.get_all_records()
 
@@ -76,24 +78,54 @@ elif st.session_state.page == "detail":
 
     if pg["verified"] == "Yes":
         st.success("✅ Verified by Us")
+        st.caption("⚠ No Filters • No Editing • Real Capture")
 
-    # IMAGE GALLERY
-    st.subheader("📸 Gallery")
+    # -----------------------
+    # PARSE CATEGORY IMAGES
+    # Format:
+    # room1,room2|bath1|food1|dining1|storage1|outside1
+    # -----------------------
+    raw = str(pg.get("images", ""))
+    sections = raw.split("|")
 
-    images = str(pg.get("images", "")).split(",")
+    sections += [""] * (6 - len(sections))
 
-    cols = st.columns(2)
+    room = sections[0].split(",")
+    bathroom = sections[1].split(",")
+    food = sections[2].split(",")
+    dining = sections[3].split(",")
+    storage = sections[4].split(",")
+    outside = sections[5].split(",")
 
-    for i, img in enumerate(images):
-        if img.strip().startswith("http"):
-            cols[i % 2].image(img.strip(), use_container_width=True)
+    def show_section(title, items):
+        if items and items[0] != "":
+            st.subheader(title)
+            cols = st.columns(2)
+            for i, img in enumerate(items):
+                if img.startswith("http"):
+                    cols[i % 2].image(img, use_container_width=True)
 
+    # -----------------------
+    # DISPLAY SECTIONS
+    # -----------------------
+    show_section("🏠 Room Reality", room)
+    show_section("🚿 Bathroom Reality", bathroom)
+    show_section("🍛 Food Reality", food)
+    show_section("🍽️ Dining Area", dining)
+    show_section("🧳 Storage Space", storage)
+    show_section("📍 Outside View", outside)
+
+    # -----------------------
     # VIDEOS
-    st.subheader("🎥 Videos")
+    # -----------------------
+    st.subheader("🎥 Real Videos")
 
     for vid in str(pg.get("videos", "")).split(","):
-        if vid.strip().startswith("http"):
-            st.video(vid.strip())
+        if vid.startswith("http"):
+            st.video(vid)
+
+    # TRUST MESSAGE
+    st.info("👉 What you see = what you get. No surprises.")
 
     if st.button("⬅ Back"):
         st.session_state.page = "home"
@@ -129,51 +161,76 @@ elif st.session_state.page == "admin":
     location = st.text_input("Location")
     verified = st.selectbox("Verified", ["Yes", "No"])
 
-    # IMAGE UPLOAD
-    st.subheader("📸 Upload Images")
-    image_files = st.file_uploader(
-        "Images",
-        accept_multiple_files=True,
-        type=["jpg", "png", "jpeg"],
-        key="img_upload"
-    )
+    # CATEGORY UPLOADS
+    def upload_section(title, key):
+        st.subheader(title)
+        return st.file_uploader(
+            f"{title} Upload",
+            accept_multiple_files=True,
+            type=["jpg", "png", "jpeg"],
+            key=key
+        )
 
-    # VIDEO UPLOAD
-    st.subheader("🎥 Upload Videos")
+    room_files = upload_section("🏠 Room", "room")
+    bath_files = upload_section("🚿 Bathroom", "bath")
+    food_files = upload_section("🍛 Food", "food")
+    dining_files = upload_section("🍽️ Dining", "dining")
+    storage_files = upload_section("🧳 Storage", "storage")
+    outside_files = upload_section("📍 Outside", "outside")
+
     video_files = st.file_uploader(
-        "Videos",
+        "🎥 Upload Videos",
         accept_multiple_files=True,
         type=["mp4"],
-        key="vid_upload"
+        key="video"
     )
 
-    image_urls = []
-    video_urls = []
+    def upload_files(files):
+        urls = []
+        if files:
+            for file in files:
+                res = cloudinary.uploader.upload(file)
+                urls.append(res["secure_url"])
+        return urls
 
-    # UPLOAD IMAGES
-    if image_files:
-        for file in image_files:
-            res = cloudinary.uploader.upload(file)
-            image_urls.append(res["secure_url"])
+    def upload_videos(files):
+        urls = []
+        if files:
+            for file in files:
+                res = cloudinary.uploader.upload(file, resource_type="video")
+                urls.append(res["secure_url"])
+        return urls
 
-    # UPLOAD VIDEOS
-    if video_files:
-        for file in video_files:
-            res = cloudinary.uploader.upload(file, resource_type="video")
-            video_urls.append(res["secure_url"])
-
-    # SAVE
     if st.button("Save PG"):
+
+        room_urls = upload_files(room_files)
+        bath_urls = upload_files(bath_files)
+        food_urls = upload_files(food_files)
+        dining_urls = upload_files(dining_files)
+        storage_urls = upload_files(storage_files)
+        outside_urls = upload_files(outside_files)
+
+        video_urls = upload_videos(video_files)
+
+        # CREATE STRUCTURE
+        image_string = "|".join([
+            ",".join(room_urls),
+            ",".join(bath_urls),
+            ",".join(food_urls),
+            ",".join(dining_urls),
+            ",".join(storage_urls),
+            ",".join(outside_urls)
+        ])
 
         pg_sheet.append_row([
             name,
             location,
             verified,
-            ",".join(image_urls),
+            image_string,
             ",".join(video_urls)
         ])
 
-        st.success("PG Added Successfully!")
+        st.success("✅ PG Added Successfully!")
         st.rerun()
 
     st.divider()
@@ -197,58 +254,14 @@ elif st.session_state.page == "admin":
 
         col1, col2 = st.columns(2)
 
-        # DELETE
         if col1.button("❌ Delete", key=f"d{i}"):
             pg_sheet.delete_rows(row_index)
             st.rerun()
 
-        # TOGGLE VERIFY
         if col2.button("🔄 Toggle Verify", key=f"t{i}"):
 
             new_status = "No" if pg["verified"] == "Yes" else "Yes"
-
             pg_sheet.update_cell(row_index, 3, new_status)
             st.rerun()
-
-        # UPDATE MEDIA
-        with st.expander("✏️ Update Media"):
-
-            new_images = st.file_uploader(
-                "Update Images",
-                accept_multiple_files=True,
-                type=["jpg","png","jpeg"],
-                key=f"img{i}"
-            )
-
-            new_videos = st.file_uploader(
-                "Update Videos",
-                accept_multiple_files=True,
-                type=["mp4"],
-                key=f"vid{i}"
-            )
-
-            if st.button("Update", key=f"u{i}"):
-
-                img_urls = []
-                vid_urls = []
-
-                if new_images:
-                    for file in new_images:
-                        res = cloudinary.uploader.upload(file)
-                        img_urls.append(res["secure_url"])
-
-                if new_videos:
-                    for file in new_videos:
-                        res = cloudinary.uploader.upload(file, resource_type="video")
-                        vid_urls.append(res["secure_url"])
-
-                if img_urls:
-                    pg_sheet.update_cell(row_index, 4, ",".join(img_urls))
-
-                if vid_urls:
-                    pg_sheet.update_cell(row_index, 5, ",".join(vid_urls))
-
-                st.success("Updated!")
-                st.rerun()
 
         st.divider()
