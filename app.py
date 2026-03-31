@@ -26,9 +26,12 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# ✅ YOUR GOOGLE SHEET (FIXED)
+# ✅ MAIN SHEET
 sheet = client.open_by_key("1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q")
 pg_sheet = sheet.sheet1
+
+# ✅ VERIFIED SHEET
+verified_sheet = client.open("verified_pg").sheet1
 
 # -----------------------
 # SESSION
@@ -49,17 +52,16 @@ def get_pg_data():
         headers = data_raw[0]
         rows = data_raw[1:]
 
-        # remove empty rows
-        rows = [r for r in rows if any(cell.strip() for cell in r)]
+        rows = [r for r in rows if len(r) >= 3 and r[0].strip()]
 
         return [dict(zip(headers, row)) for row in rows]
 
     except Exception:
-        st.error("⚠️ Sheet not accessible. Check sharing permissions.")
+        st.error("⚠️ Sheet access error")
         return []
 
 # -----------------------
-# HOME PAGE
+# HOME
 # -----------------------
 if st.session_state.page == "home":
 
@@ -68,20 +70,21 @@ if st.session_state.page == "home":
 
     data = get_pg_data()
 
-    if not data:
-        st.warning("No PG data available")
-
     for i, pg in enumerate(data):
 
-        st.subheader(pg.get("name", "N/A"))
-        st.write(f"📍 {pg.get('location', 'N/A')}")
+        name = pg.get("name", "")
+        location = pg.get("location", "")
+        verified = pg.get("verified", "")
 
-        if pg.get("verified") == "Yes":
+        st.subheader(name)
+        st.write(f"📍 {location}")
+
+        if verified == "Yes":
             st.success("✅ Verified by Us")
         else:
             st.warning("Not Verified")
 
-        if st.button(f"View {pg.get('name','PG')}", key=f"view_{i}"):
+        if st.button(f"View {name}", key=f"view_{i}"):
             st.session_state.pg = pg
             st.session_state.page = "detail"
             st.rerun()
@@ -93,7 +96,7 @@ if st.session_state.page == "home":
         st.rerun()
 
 # -----------------------
-# DETAIL PAGE
+# DETAIL
 # -----------------------
 elif st.session_state.page == "detail":
 
@@ -110,118 +113,87 @@ elif st.session_state.page == "detail":
     sections = raw.split("|")
     sections += [""] * (6 - len(sections))
 
-    room = sections[0].split(",")
-    bathroom = sections[1].split(",")
-    food = sections[2].split(",")
-    dining = sections[3].split(",")
-    storage = sections[4].split(",")
-    outside = sections[5].split(",")
-
     def show_section(title, items):
-        if items and items[0] != "":
+        if items and items[0]:
             st.subheader(title)
             cols = st.columns(2)
             for i, img in enumerate(items):
                 if img.startswith("http"):
                     cols[i % 2].image(img, use_container_width=True)
 
-    show_section("🏠 Room Reality", room)
-    show_section("🚿 Bathroom Reality", bathroom)
-    show_section("🍛 Food Reality", food)
-    show_section("🍽️ Dining Area", dining)
-    show_section("🧳 Storage Space", storage)
-    show_section("📍 Outside View", outside)
-
-    st.subheader("🎥 Real Videos")
+    show_section("🏠 Room", sections[0].split(","))
+    show_section("🚿 Bathroom", sections[1].split(","))
+    show_section("🍛 Food", sections[2].split(","))
+    show_section("🍽️ Dining", sections[3].split(","))
+    show_section("🧳 Storage", sections[4].split(","))
+    show_section("📍 Outside", sections[5].split(","))
 
     for vid in str(pg.get("videos", "")).split(","):
         if vid.startswith("http"):
             st.video(vid)
-
-    st.info("👉 What you see = what you get. No surprises.")
 
     if st.button("⬅ Back"):
         st.session_state.page = "home"
         st.rerun()
 
 # -----------------------
-# ADMIN PANEL
+# ADMIN
 # -----------------------
 elif st.session_state.page == "admin":
 
-    st.title("👨‍💼 Admin Dashboard")
+    st.title("👨‍💼 Admin")
 
-    password = st.text_input("Password", type="password")
-
-    if password != "1234":
+    if st.text_input("Password", type="password") != "1234":
         st.stop()
 
     st.success("Logged in")
 
-    if st.button("🚪 Logout"):
+    if st.button("Logout"):
         st.session_state.clear()
         st.session_state.page = "home"
         st.rerun()
 
-    st.divider()
+    # ADD
+    st.subheader("Add PG")
 
-    # ADD PG
-    st.subheader("➕ Add PG")
-
-    name = st.text_input("PG Name")
+    name = st.text_input("Name")
     location = st.text_input("Location")
     verified = st.selectbox("Verified", ["Yes", "No"])
 
-    def upload_section(title, key):
-        st.subheader(title)
-        return st.file_uploader(
-            title,
-            accept_multiple_files=True,
-            type=["jpg", "png", "jpeg"],
-            key=key
-        )
+    def upload(key):
+        return st.file_uploader(key, accept_multiple_files=True, key=key)
 
-    room_files = upload_section("🏠 Room", "room")
-    bath_files = upload_section("🚿 Bathroom", "bath")
-    food_files = upload_section("🍛 Food", "food")
-    dining_files = upload_section("🍽️ Dining", "dining")
-    storage_files = upload_section("🧳 Storage", "storage")
-    outside_files = upload_section("📍 Outside", "outside")
+    room = upload("room")
+    bath = upload("bath")
+    food = upload("food")
+    dining = upload("dining")
+    storage = upload("storage")
+    outside = upload("outside")
 
-    video_files = st.file_uploader(
-        "🎥 Videos",
-        accept_multiple_files=True,
-        type=["mp4"]
-    )
+    videos = st.file_uploader("videos", accept_multiple_files=True)
 
-    def upload_files(files):
+    def up(files, video=False):
         urls = []
         if files:
-            for file in files:
-                res = cloudinary.uploader.upload(file)
-                urls.append(res["secure_url"])
-        return urls
-
-    def upload_videos(files):
-        urls = []
-        if files:
-            for file in files:
-                res = cloudinary.uploader.upload(file, resource_type="video")
+            for f in files:
+                res = cloudinary.uploader.upload(
+                    f, resource_type="video" if video else "image"
+                )
                 urls.append(res["secure_url"])
         return urls
 
     if st.button("Save PG"):
 
         image_string = "|".join([
-            ",".join(upload_files(room_files)),
-            ",".join(upload_files(bath_files)),
-            ",".join(upload_files(food_files)),
-            ",".join(upload_files(dining_files)),
-            ",".join(upload_files(storage_files)),
-            ",".join(upload_files(outside_files))
+            ",".join(up(room)),
+            ",".join(up(bath)),
+            ",".join(up(food)),
+            ",".join(up(dining)),
+            ",".join(up(storage)),
+            ",".join(up(outside))
         ])
 
-        video_string = ",".join(upload_videos(video_files))
+        video_string = ",".join(up(videos, True))
 
         pg_sheet.append_row([
             name,
@@ -231,44 +203,61 @@ elif st.session_state.page == "admin":
             video_string
         ])
 
-        st.success("✅ PG Added")
+        # 🔥 AUTO SAVE VERIFIED
+        if verified == "Yes":
+            verified_sheet.append_row([
+                name,
+                location,
+                "Yes",
+                image_string,
+                video_string
+            ])
+
+        st.success("Saved")
         st.rerun()
 
-    st.divider()
-
-    # MANAGE PGs
-    st.subheader("📋 Manage PGs")
+    # MANAGE
+    st.subheader("Manage PGs")
 
     data_raw = pg_sheet.get_all_values()
 
-    if len(data_raw) < 2:
-        headers = data_raw[0] if data_raw else []
-        rows = []
-    else:
-        headers = data_raw[0]
-        rows = data_raw[1:]
+    headers = data_raw[0] if data_raw else []
+    rows = data_raw[1:] if len(data_raw) > 1 else []
 
-    # remove empty rows
-    rows = [r for r in rows if any(cell.strip() for cell in r)]
+    rows = [r for r in rows if len(r) >= 3 and r[0].strip()]
 
     for i in range(len(rows)):
 
         pg = dict(zip(headers, rows[i]))
 
-        st.write(f"🏠 {pg.get('name')} - {pg.get('location')}")
-        st.write(f"Verified: {pg.get('verified')}")
+        name = pg.get("name", "")
+        location = pg.get("location", "")
+        verified = pg.get("verified", "")
 
-        col1, col2 = st.columns(2)
+        st.write(f"{name} - {location}")
+        st.write(f"Verified: {verified}")
 
-        if col1.button("❌ Delete", key=f"del_{i}"):
+        c1, c2 = st.columns(2)
+
+        if c1.button("Delete", key=f"d{i}"):
             pg_sheet.delete_rows(i + 2)
-            st.success("Deleted!")
             st.rerun()
 
-        if col2.button("🔄 Toggle Verify", key=f"toggle_{i}"):
+        if c2.button("Toggle", key=f"t{i}"):
 
-            new_status = "No" if pg.get("verified") == "Yes" else "Yes"
+            new_status = "No" if verified == "Yes" else "Yes"
             pg_sheet.update_cell(i + 2, 3, new_status)
+
+            # 🔥 AUTO SAVE ON TOGGLE
+            if new_status == "Yes":
+                verified_sheet.append_row([
+                    name,
+                    location,
+                    "Yes",
+                    pg.get("images", ""),
+                    pg.get("videos", "")
+                ])
+
             st.rerun()
 
         st.divider()
