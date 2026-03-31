@@ -170,51 +170,69 @@ elif st.session_state.page == "admin":
 
     videos = st.file_uploader("videos", accept_multiple_files=True)
 
-    def up(files, video=False):
-        urls = []
-        if files:
-            for f in files:
-                res = cloudinary.uploader.upload(
-                    f, resource_type="video" if video else "image"
-                )
-                urls.append(res["secure_url"])
-        return urls
-
-    # ✅ FIXED SAVE
+    # -----------------------
+    # FIXED SAVE PG
+    # -----------------------
     if st.button("Save PG"):
 
-        if not name.strip() or not location.strip():
-            st.error("Enter name & location")
-            st.stop()
+        try:
+            if not name.strip() or not location.strip():
+                st.error("Enter name & location")
+                st.stop()
 
-        def safe_join(files):
-            return ",".join(up(files)) if files else ""
+            def safe_join(files):
+                urls = []
+                if files:
+                    for f in files:
+                        try:
+                            res = cloudinary.uploader.upload(f)
+                            urls.append(res["secure_url"])
+                        except Exception as e:
+                            st.warning(f"Upload failed: {e}")
+                return ",".join(urls)
 
-        image_string = "|".join([
-            safe_join(room),
-            safe_join(bath),
-            safe_join(food),
-            safe_join(dining),
-            safe_join(storage),
-            safe_join(outside)
-        ])
+            def safe_video(files):
+                urls = []
+                if files:
+                    for f in files:
+                        try:
+                            res = cloudinary.uploader.upload(f, resource_type="video")
+                            urls.append(res["secure_url"])
+                        except Exception as e:
+                            st.warning(f"Video upload failed: {e}")
+                return ",".join(urls)
 
-        video_string = ",".join(up(videos, True)) if videos else ""
+            image_string = "|".join([
+                safe_join(room),
+                safe_join(bath),
+                safe_join(food),
+                safe_join(dining),
+                safe_join(storage),
+                safe_join(outside)
+            ])
 
-        new_row = [""] * 5
-        new_row[0] = name.strip()
-        new_row[1] = location.strip()
-        new_row[2] = verified
-        new_row[3] = image_string
-        new_row[4] = video_string
+            video_string = safe_video(videos)
 
-        pg_sheet.append_row(new_row)
+            new_row = [
+                name.strip(),
+                location.strip(),
+                verified,
+                image_string,
+                video_string
+            ]
 
-        if verified == "Yes":
-            verified_sheet.append_row(new_row)
+            st.write("Saving:", new_row)  # DEBUG
 
-        st.success("Saved correctly ✅")
-        st.rerun()
+            pg_sheet.append_row(new_row)
+
+            if verified == "Yes":
+                verified_sheet.append_row(new_row)
+
+            st.success("✅ Saved successfully!")
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Save failed: {e}")
 
     # -----------------------
     # MANAGE PGs
