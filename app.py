@@ -26,11 +26,11 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# ✅ MAIN SHEET
+# MAIN SHEET
 sheet = client.open_by_key("1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q")
 pg_sheet = sheet.sheet1
 
-# ✅ VERIFIED SHEET
+# VERIFIED SHEET
 verified_sheet = client.open("verified_pg").sheet1
 
 # -----------------------
@@ -40,7 +40,7 @@ if "page" not in st.session_state:
     st.session_state.page = "home"
 
 # -----------------------
-# SAFE DATA FETCH
+# SAFE DATA
 # -----------------------
 def get_pg_data():
     try:
@@ -51,13 +51,11 @@ def get_pg_data():
 
         headers = data_raw[0]
         rows = data_raw[1:]
-
         rows = [r for r in rows if len(r) >= 3 and r[0].strip()]
 
         return [dict(zip(headers, row)) for row in rows]
 
-    except Exception:
-        st.error("⚠️ Sheet access error")
+    except:
         return []
 
 # -----------------------
@@ -153,7 +151,7 @@ elif st.session_state.page == "admin":
         st.session_state.page = "home"
         st.rerun()
 
-    # ADD
+    # ADD PG
     st.subheader("Add PG")
 
     name = st.text_input("Name")
@@ -203,7 +201,6 @@ elif st.session_state.page == "admin":
             video_string
         ])
 
-        # 🔥 AUTO SAVE VERIFIED
         if verified == "Yes":
             verified_sheet.append_row([
                 name,
@@ -216,8 +213,10 @@ elif st.session_state.page == "admin":
         st.success("Saved")
         st.rerun()
 
-    # MANAGE
-    st.subheader("Manage PGs")
+    # -----------------------
+    # MANAGE PGs (FINAL UI)
+    # -----------------------
+    st.subheader("📋 Manage PGs")
 
     data_raw = pg_sheet.get_all_values()
 
@@ -230,25 +229,31 @@ elif st.session_state.page == "admin":
 
         pg = dict(zip(headers, rows[i]))
 
-        name = pg.get("name", "")
-        location = pg.get("location", "")
-        verified = pg.get("verified", "")
+        name = pg.get("name", "").strip()
+        location = pg.get("location", "").strip()
+        verified = pg.get("verified", "").strip() or "No"
 
-        st.write(f"{name} - {location}")
-        st.write(f"Verified: {verified}")
+        st.markdown(f"### 🏠 {name}")
+        st.write(f"📍 {location}")
 
-        c1, c2 = st.columns(2)
+        if verified == "Yes":
+            st.success("✅ Verified")
+        else:
+            st.warning("❌ Not Verified")
 
-        if c1.button("Delete", key=f"d{i}"):
+        col1, col2 = st.columns(2)
+
+        if col1.button("❌ Delete", key=f"del_{i}"):
             pg_sheet.delete_rows(i + 2)
             st.rerun()
 
-        if c2.button("Toggle", key=f"t{i}"):
+        if col2.button("🔄 Toggle Verify", key=f"toggle_{i}"):
 
             new_status = "No" if verified == "Yes" else "Yes"
             pg_sheet.update_cell(i + 2, 3, new_status)
 
-            # 🔥 AUTO SAVE ON TOGGLE
+            rows[i][2] = new_status
+
             if new_status == "Yes":
                 verified_sheet.append_row([
                     name,
@@ -258,6 +263,7 @@ elif st.session_state.page == "admin":
                     pg.get("videos", "")
                 ])
 
+            st.success(f"Now: {new_status}")
             st.rerun()
 
         st.divider()
