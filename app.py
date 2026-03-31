@@ -180,41 +180,44 @@ elif st.session_state.page == "admin":
                 urls.append(res["secure_url"])
         return urls
 
+    # ✅ FIXED SAVE
     if st.button("Save PG"):
 
+        if not name.strip() or not location.strip():
+            st.error("Enter name & location")
+            st.stop()
+
+        def safe_join(files):
+            return ",".join(up(files)) if files else ""
+
         image_string = "|".join([
-            ",".join(up(room)),
-            ",".join(up(bath)),
-            ",".join(up(food)),
-            ",".join(up(dining)),
-            ",".join(up(storage)),
-            ",".join(up(outside))
+            safe_join(room),
+            safe_join(bath),
+            safe_join(food),
+            safe_join(dining),
+            safe_join(storage),
+            safe_join(outside)
         ])
 
-        video_string = ",".join(up(videos, True))
+        video_string = ",".join(up(videos, True)) if videos else ""
 
-        pg_sheet.append_row([
-            name,
-            location,
-            verified,
-            image_string,
-            video_string
-        ])
+        new_row = [""] * 5
+        new_row[0] = name.strip()
+        new_row[1] = location.strip()
+        new_row[2] = verified
+        new_row[3] = image_string
+        new_row[4] = video_string
+
+        pg_sheet.append_row(new_row)
 
         if verified == "Yes":
-            verified_sheet.append_row([
-                name,
-                location,
-                "Yes",
-                image_string,
-                video_string
-            ])
+            verified_sheet.append_row(new_row)
 
-        st.success("Saved")
+        st.success("Saved correctly ✅")
         st.rerun()
 
     # -----------------------
-    # MANAGE PGs (FINAL UI)
+    # MANAGE PGs
     # -----------------------
     st.subheader("📋 Manage PGs")
 
@@ -227,11 +230,14 @@ elif st.session_state.page == "admin":
 
     for i in range(len(rows)):
 
-        pg = dict(zip(headers, rows[i]))
+        row = rows[i]
 
-        name = pg.get("name", "").strip()
-        location = pg.get("location", "").strip()
-        verified = pg.get("verified", "").strip() or "No"
+        name = row[0].strip() if len(row) > 0 else ""
+        location = row[1].strip() if len(row) > 1 else ""
+        verified = row[2].strip() if len(row) > 2 else "No"
+
+        if not name:
+            continue
 
         st.markdown(f"### 🏠 {name}")
         st.write(f"📍 {location}")
@@ -255,13 +261,7 @@ elif st.session_state.page == "admin":
             rows[i][2] = new_status
 
             if new_status == "Yes":
-                verified_sheet.append_row([
-                    name,
-                    location,
-                    "Yes",
-                    pg.get("images", ""),
-                    pg.get("videos", "")
-                ])
+                verified_sheet.append_row(row)
 
             st.success(f"Now: {new_status}")
             st.rerun()
