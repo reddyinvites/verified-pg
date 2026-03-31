@@ -66,7 +66,7 @@ if st.session_state.page == "home":
     if not data:
         st.warning("No PG data available")
 
-    for pg in data:
+    for i, pg in enumerate(data):
 
         st.subheader(pg.get("name", "N/A"))
         st.write(f"📍 {pg.get('location', 'N/A')}")
@@ -76,7 +76,8 @@ if st.session_state.page == "home":
         else:
             st.warning("Not Verified")
 
-        if st.button(f"View {pg.get('name','PG')}"):
+        # ✅ UNIQUE BUTTON KEY FIX
+        if st.button(f"View {pg.get('name','PG')}", key=f"view_{i}"):
             st.session_state.pg = pg
             st.session_state.page = "detail"
             st.rerun()
@@ -253,11 +254,11 @@ elif st.session_state.page == "admin":
 
         col1, col2 = st.columns(2)
 
-        if col1.button("❌ Delete", key=f"d{i}"):
+        if col1.button("❌ Delete", key=f"del_{i}"):
             pg_sheet.delete_rows(row_index)
             st.rerun()
 
-        if col2.button("🔄 Toggle Verify", key=f"t{i}"):
+        if col2.button("🔄 Toggle Verify", key=f"toggle_{i}"):
 
             new_status = "No" if pg.get("verified") == "Yes" else "Yes"
             pg_sheet.update_cell(row_index, 3, new_status)
