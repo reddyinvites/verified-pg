@@ -27,40 +27,16 @@ creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
 # -----------------------
-# SHEETS
+# ONLY ONE SHEET
 # -----------------------
-sheet = client.open_by_key("1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q")
+sheet = client.open("verified_pg")
 pg_sheet = sheet.sheet1
-
-verified_sheet = client.open("verified_pg").sheet1
 
 # -----------------------
 # SESSION
 # -----------------------
 if "page" not in st.session_state:
     st.session_state.page = "home"
-
-# -----------------------
-# SYNC VERIFIED
-# -----------------------
-def sync_verified_pg():
-    try:
-        data = pg_sheet.get_all_values()
-        if len(data) < 2:
-            return
-
-        headers = data[0]
-        rows = data[1:]
-
-        verified_sheet.clear()
-        verified_sheet.append_row(headers)
-
-        for row in rows:
-            if len(row) >= 3 and row[2].strip() == "Yes":
-                verified_sheet.append_row(row)
-
-    except Exception as e:
-        st.warning(f"Sync error: {e}")
 
 # -----------------------
 # HOME
@@ -70,7 +46,7 @@ if st.session_state.page == "home":
     st.title("🏠 Verified PGs")
 
     try:
-        data = verified_sheet.get_all_records()
+        data = pg_sheet.get_all_records()
     except:
         data = []
 
@@ -106,7 +82,6 @@ elif st.session_state.page == "detail":
     if pg.get("verified") == "Yes":
         st.success("✅ Verified by Us")
 
-    # images
     raw = str(pg.get("images", ""))
     sections = raw.split("|")
     sections += [""] * (6 - len(sections))
@@ -122,7 +97,6 @@ elif st.session_state.page == "detail":
                 if img.startswith("http"):
                     cols[i % 2].image(img, use_container_width=True)
 
-    # videos
     for vid in str(pg.get("videos", "")).split(","):
         if vid.startswith("http"):
             st.video(vid)
@@ -168,20 +142,12 @@ elif st.session_state.page == "admin":
     outside = uploader("outside")
     videos = st.file_uploader("videos", accept_multiple_files=True)
 
-    # -----------------------
-    # SAVE (FIXED)
-    # -----------------------
     if st.button("Save PG"):
 
         if not name.strip() or not location.strip():
             st.error("Enter name & location")
             st.stop()
 
-        # STEP 1: SAVE BASIC DATA
-        pg_sheet.append_row([name, location, verified, "", ""])
-        row_index = len(pg_sheet.get_all_values())
-
-        # STEP 2: UPLOAD
         def upload(files, video=False):
             urls = []
             if files:
@@ -206,12 +172,13 @@ elif st.session_state.page == "admin":
 
         video_string = upload(videos, True)
 
-        # STEP 3: UPDATE SHEET
-        pg_sheet.update_cell(row_index, 4, image_string)
-        pg_sheet.update_cell(row_index, 5, video_string)
-
-        # STEP 4: SYNC VERIFIED
-        sync_verified_pg()
+        pg_sheet.append_row([
+            name,
+            location,
+            verified,
+            image_string,
+            video_string
+        ])
 
         st.success("✅ Saved Successfully!")
         st.rerun()
@@ -245,7 +212,6 @@ elif st.session_state.page == "admin":
 
         if col1.button("❌ Delete", key=f"d{i}"):
             pg_sheet.delete_rows(i + 2)
-            sync_verified_pg()
             st.rerun()
 
         if col2.button("🔄 Toggle Verify", key=f"t{i}"):
@@ -253,7 +219,6 @@ elif st.session_state.page == "admin":
             new = "No" if verified == "Yes" else "Yes"
             pg_sheet.update_cell(i + 2, 3, new)
 
-            sync_verified_pg()
             st.rerun()
 
         st.divider()
