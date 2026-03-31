@@ -36,6 +36,24 @@ if "page" not in st.session_state:
     st.session_state.page = "home"
 
 # -----------------------
+# SAFE DATA FETCH
+# -----------------------
+def get_pg_data():
+    try:
+        data_raw = pg_sheet.get_all_values()
+
+        if not data_raw or len(data_raw) < 2:
+            return []
+
+        headers = data_raw[0]
+        rows = data_raw[1:]
+
+        return [dict(zip(headers, row)) for row in rows]
+
+    except Exception:
+        return []
+
+# -----------------------
 # HOME PAGE
 # -----------------------
 if st.session_state.page == "home":
@@ -43,19 +61,22 @@ if st.session_state.page == "home":
     st.title("🏠 Verified PGs")
     st.caption("Filters kaadu… reality chupistham")
 
-    data = pg_sheet.get_all_records()
+    data = get_pg_data()
+
+    if not data:
+        st.warning("No PG data available")
 
     for pg in data:
 
-        st.subheader(pg["name"])
-        st.write(f"📍 {pg['location']}")
+        st.subheader(pg.get("name", "N/A"))
+        st.write(f"📍 {pg.get('location', 'N/A')}")
 
-        if pg["verified"] == "Yes":
+        if pg.get("verified") == "Yes":
             st.success("✅ Verified by Us")
         else:
             st.warning("Not Verified")
 
-        if st.button(f"View {pg['name']}"):
+        if st.button(f"View {pg.get('name','PG')}"):
             st.session_state.pg = pg
             st.session_state.page = "detail"
             st.rerun()
@@ -73,21 +94,15 @@ elif st.session_state.page == "detail":
 
     pg = st.session_state.pg
 
-    st.title(pg["name"])
-    st.write(f"📍 {pg['location']}")
+    st.title(pg.get("name", "PG"))
+    st.write(f"📍 {pg.get('location', '')}")
 
-    if pg["verified"] == "Yes":
+    if pg.get("verified") == "Yes":
         st.success("✅ Verified by Us")
         st.caption("⚠ No Filters • No Editing • Real Capture")
 
-    # -----------------------
-    # PARSE CATEGORY IMAGES
-    # Format:
-    # room1,room2|bath1|food1|dining1|storage1|outside1
-    # -----------------------
     raw = str(pg.get("images", ""))
     sections = raw.split("|")
-
     sections += [""] * (6 - len(sections))
 
     room = sections[0].split(",")
@@ -105,9 +120,6 @@ elif st.session_state.page == "detail":
                 if img.startswith("http"):
                     cols[i % 2].image(img, use_container_width=True)
 
-    # -----------------------
-    # DISPLAY SECTIONS
-    # -----------------------
     show_section("🏠 Room Reality", room)
     show_section("🚿 Bathroom Reality", bathroom)
     show_section("🍛 Food Reality", food)
@@ -115,16 +127,12 @@ elif st.session_state.page == "detail":
     show_section("🧳 Storage Space", storage)
     show_section("📍 Outside View", outside)
 
-    # -----------------------
-    # VIDEOS
-    # -----------------------
     st.subheader("🎥 Real Videos")
 
     for vid in str(pg.get("videos", "")).split(","):
         if vid.startswith("http"):
             st.video(vid)
 
-    # TRUST MESSAGE
     st.info("👉 What you see = what you get. No surprises.")
 
     if st.button("⬅ Back"):
@@ -152,20 +160,17 @@ elif st.session_state.page == "admin":
 
     st.divider()
 
-    # -----------------------
     # ADD PG
-    # -----------------------
     st.subheader("➕ Add PG")
 
     name = st.text_input("PG Name")
     location = st.text_input("Location")
     verified = st.selectbox("Verified", ["Yes", "No"])
 
-    # CATEGORY UPLOADS
     def upload_section(title, key):
         st.subheader(title)
         return st.file_uploader(
-            f"{title} Upload",
+            title,
             accept_multiple_files=True,
             type=["jpg", "png", "jpeg"],
             key=key
@@ -179,10 +184,9 @@ elif st.session_state.page == "admin":
     outside_files = upload_section("📍 Outside", "outside")
 
     video_files = st.file_uploader(
-        "🎥 Upload Videos",
+        "🎥 Videos",
         accept_multiple_files=True,
-        type=["mp4"],
-        key="video"
+        type=["mp4"]
     )
 
     def upload_files(files):
@@ -203,54 +207,49 @@ elif st.session_state.page == "admin":
 
     if st.button("Save PG"):
 
-        room_urls = upload_files(room_files)
-        bath_urls = upload_files(bath_files)
-        food_urls = upload_files(food_files)
-        dining_urls = upload_files(dining_files)
-        storage_urls = upload_files(storage_files)
-        outside_urls = upload_files(outside_files)
-
-        video_urls = upload_videos(video_files)
-
-        # CREATE STRUCTURE
         image_string = "|".join([
-            ",".join(room_urls),
-            ",".join(bath_urls),
-            ",".join(food_urls),
-            ",".join(dining_urls),
-            ",".join(storage_urls),
-            ",".join(outside_urls)
+            ",".join(upload_files(room_files)),
+            ",".join(upload_files(bath_files)),
+            ",".join(upload_files(food_files)),
+            ",".join(upload_files(dining_files)),
+            ",".join(upload_files(storage_files)),
+            ",".join(upload_files(outside_files))
         ])
+
+        video_string = ",".join(upload_videos(video_files))
 
         pg_sheet.append_row([
             name,
             location,
             verified,
             image_string,
-            ",".join(video_urls)
+            video_string
         ])
 
-        st.success("✅ PG Added Successfully!")
+        st.success("✅ PG Added")
         st.rerun()
 
     st.divider()
 
-    # -----------------------
-    # MANAGE PG
-    # -----------------------
+    # MANAGE
     st.subheader("📋 Manage PGs")
 
-    data = pg_sheet.get_all_values()
-    headers = data[0]
-    rows = data[1:]
+    data_raw = pg_sheet.get_all_values()
+
+    if len(data_raw) < 2:
+        headers = data_raw[0] if data_raw else []
+        rows = []
+    else:
+        headers = data_raw[0]
+        rows = data_raw[1:]
 
     for i in range(len(rows)):
 
         row_index = i + 2
         pg = dict(zip(headers, rows[i]))
 
-        st.write(f"🏠 {pg['name']} - {pg['location']}")
-        st.write(f"Verified: {pg['verified']}")
+        st.write(f"🏠 {pg.get('name')} - {pg.get('location')}")
+        st.write(f"Verified: {pg.get('verified')}")
 
         col1, col2 = st.columns(2)
 
@@ -260,7 +259,7 @@ elif st.session_state.page == "admin":
 
         if col2.button("🔄 Toggle Verify", key=f"t{i}"):
 
-            new_status = "No" if pg["verified"] == "Yes" else "Yes"
+            new_status = "No" if pg.get("verified") == "Yes" else "Yes"
             pg_sheet.update_cell(row_index, 3, new_status)
             st.rerun()
 
