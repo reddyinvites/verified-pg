@@ -9,6 +9,9 @@ import cloudinary.uploader
 # -----------------------
 st.set_page_config(page_title="Verified PGs", layout="wide")
 
+# 🔥 CLEAR CACHE (fix old data issue)
+st.cache_data.clear()
+
 cloudinary.config(
     cloud_name=st.secrets["cloudinary"]["cloud_name"],
     api_key=st.secrets["cloudinary"]["api_key"],
@@ -45,21 +48,25 @@ if st.session_state.page == "home":
 
     st.title("🏠 Verified PGs")
 
-    try:
-        data = pg_sheet.get_all_records()
-    except:
-        data = []
+    data = pg_sheet.get_all_values()
+    rows = data[1:] if len(data) > 1 else []
 
-    for i, pg in enumerate(data):
+    for i, row in enumerate(rows):
 
-        name = pg.get("name", "")
-        location = pg.get("location", "")
+        if len(row) < 2:
+            continue
+
+        name = row[0].strip()
+        location = row[1].strip()
+
+        if not name:
+            continue
 
         st.subheader(f"🏠 {name}")
         st.write(f"📍 {location}")
 
         if st.button(f"View {name}", key=f"view_{i}"):
-            st.session_state.pg = pg
+            st.session_state.pg = row
             st.session_state.page = "detail"
             st.rerun()
 
@@ -76,14 +83,19 @@ elif st.session_state.page == "detail":
 
     pg = st.session_state.pg
 
-    st.title(pg.get("name", "PG"))
-    st.write(f"📍 {pg.get('location', '')}")
+    name = pg[0] if len(pg) > 0 else ""
+    location = pg[1] if len(pg) > 1 else ""
+    verified = pg[2] if len(pg) > 2 else ""
+    images = pg[3] if len(pg) > 3 else ""
+    videos = pg[4] if len(pg) > 4 else ""
 
-    if pg.get("verified") == "Yes":
+    st.title(name)
+    st.write(f"📍 {location}")
+
+    if verified == "Yes":
         st.success("✅ Verified by Us")
 
-    raw = str(pg.get("images", ""))
-    sections = raw.split("|")
+    sections = images.split("|")
     sections += [""] * (6 - len(sections))
 
     titles = ["🏠 Room", "🚿 Bathroom", "🍛 Food", "🍽️ Dining", "🧳 Storage", "📍 Outside"]
@@ -97,7 +109,7 @@ elif st.session_state.page == "detail":
                 if img.startswith("http"):
                     cols[i % 2].image(img, use_container_width=True)
 
-    for vid in str(pg.get("videos", "")).split(","):
+    for vid in videos.split(","):
         if vid.startswith("http"):
             st.video(vid)
 
@@ -173,8 +185,8 @@ elif st.session_state.page == "admin":
         video_string = upload(videos, True)
 
         pg_sheet.append_row([
-            name,
-            location,
+            name.strip(),
+            location.strip(),
             verified,
             image_string,
             video_string
@@ -189,7 +201,7 @@ elif st.session_state.page == "admin":
     st.subheader("📋 Manage PGs")
 
     data = pg_sheet.get_all_values()
-    rows = data[1:]
+    rows = data[1:] if len(data) > 1 else []
 
     for i, row in enumerate(rows):
 
