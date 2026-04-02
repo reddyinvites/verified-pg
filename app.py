@@ -1,13 +1,17 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+from datetime import datetime
 import cloudinary
 import cloudinary.uploader
 
+# -----------------------
+# PAGE CONFIG
+# -----------------------
 st.set_page_config(page_title="PG Admin", layout="wide")
 
 # -----------------------
-# CONFIG
+# CLOUDINARY CONFIG (NESTED SECRETS)
 # -----------------------
 cloudinary.config(
     cloud_name=st.secrets["cloudinary"]["cloud_name"],
@@ -15,6 +19,21 @@ cloudinary.config(
     api_secret=st.secrets["cloudinary"]["api_secret"]
 )
 
+# -----------------------
+# SESSION INIT
+# -----------------------
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+
+if "cart" not in st.session_state:
+    st.session_state.cart = {}
+
+if "arrived" not in st.session_state:
+    st.session_state.arrived = False
+
+# -----------------------
+# GOOGLE SHEETS
+# -----------------------
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -26,190 +45,172 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# -----------------------
-# SHEETS
-# -----------------------
-PG_DATA_ID = "1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q"
-VERIFIED_ID = "191Fg2-jLtpvziqFrUdQNV2ki1iXYe_fdTGYv3_Tm7wA"
+sheet = client.open_by_key("1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q")
 
-pg_sheet = client.open_by_key(PG_DATA_ID).worksheet("Sheet1")
-verified_sheet = client.open_by_key(VERIFIED_ID).worksheet("verified_pg")
+pg_sheet = sheet.sheet1
+order_sheet = sheet.worksheet("orders")
 
 # -----------------------
-# LOGIN
+# LOAD PG DATA
 # -----------------------
-st.title("👨‍💼 Admin Panel")
+pg_raw = pg_sheet.get_all_records()
 
-password = st.text_input("Password", type="password")
+pg_data = []
+for row in pg_raw:
+    val = row.get("pg_name") or row.get("pg")
+    if val:
+        pg_data.append(val)
 
-if password != "1234":
-    st.stop()
+pg_data = sorted(list(set(pg_data)))
 
-st.success("✅ Logged in")
+# =====================
+# HOME
+# =====================
+if st.session_state.page == "home":
 
-# -----------------------
-# ☰ MENU
-# -----------------------
-st.sidebar.title("☰ Menu")
-menu = st.sidebar.radio("Go to", ["➕ Add PG", "📋 Manage PGs", "🖼 Gallery"])
+    st.title("🏠 Move-in Assistant")
 
-# -----------------------
-# ADD PG
-# -----------------------
-if menu == "➕ Add PG":
+    col1, col2 = st.columns(2)
 
-    pg_rows = pg_sheet.get_all_values()
-
-    options = []
-    for row in pg_rows[1:]:
-        if len(row) >= 3:
-            name = row[1].strip()
-            location = row[2].strip()
-            if name and location:
-                options.append(f"{name}|{location}")
-
-    selected = st.selectbox("Select PG", options)
-
-    name, location = selected.split("|")
-
-    st.text_input("Name", value=name, disabled=True)
-    st.text_input("Location", value=location, disabled=True)
-
-    verified = st.selectbox("Verified", ["Yes", "No"])
-
-    categories = ["room", "bath", "food", "dining", "storage", "outside"]
-
-    category_inputs = {}
-
-    for cat in categories:
-        st.subheader(f"📸 {cat.upper()}")
-        files = st.file_uploader(cat, accept_multiple_files=True, key=cat)
-        category_inputs[cat] = files
-
-    st.subheader("🎥 Videos")
-    video_files = st.file_uploader("videos", accept_multiple_files=True)
-
-    if st.button("💾 Save PG"):
-
-        # ❌ DUPLICATE CHECK
-        existing = verified_sheet.get_all_records()
-        for row in existing:
-            if row.get("name") == name:
-                st.error("❌ Already uploaded this PG")
-                st.stop()
-
-        category_data = []
-
-        # Upload images
-        for cat, files in category_inputs.items():
-            urls = []
-            if files:
-                for file in files:
-                    res = cloudinary.uploader.upload(file)
-                    urls.append(res["secure_url"])
-            if urls:
-                category_data.append(f"{cat}:{','.join(urls)}")
-
-        # Upload videos
-        video_urls = []
-        if video_files:
-            for file in video_files:
-                res = cloudinary.uploader.upload(file, resource_type="video")
-                video_urls.append(res["secure_url"])
-
-        verified_sheet.append_row([
-            name,
-            location,
-            verified,
-            "|".join(category_data),
-            "|".join(video_urls)
-        ])
-
-        st.success("✅ Saved Successfully")
-
-        # CLEAR FORM
-        st.session_state.clear()
+    if col1.button("👤 User"):
+        st.session_state.page = "user"
         st.rerun()
 
-# -----------------------
-# MANAGE PGs
-# -----------------------
-if menu == "📋 Manage PGs":
+    if col2.button("👨‍💼 Admin"):
+        st.session_state.page = "admin"
+        st.rerun()
 
-    st.header("📋 Manage PGs")
+# =====================
+# USER DASHBOARD
+# =====================
+elif st.session_state.page == "user":
 
-    data = verified_sheet.get_all_records()
+    st.title("👤 User Dashboard")
 
-    for i, pg in enumerate(data):
+    name = st.text_input("Name")
+    phone = st.text_input("Phone")
 
-        st.subheader(f"🏠 {pg.get('name')}")
-        st.write(f"📍 {pg.get('location')}")
+    selected_pg = st.selectbox("Select PG", pg_data)
 
-        if pg.get("verified") == "Yes":
-            st.success("✅ Verified")
-        else:
-            st.warning("❌ Not Verified")
+    if st.button("📍 I reached PG"):
+        st.session_state.arrived = True
+        st.rerun()
 
-        col1, col2 = st.columns(2)
+    if st.session_state.arrived:
 
-        if col1.button("❌ Delete", key=f"delete{i}"):
-            verified_sheet.delete_rows(i + 2)
-            st.rerun()
+        cart = st.session_state.cart
 
-        if pg.get("verified") != "Yes":
-            if col2.button("🔄 Verify", key=f"toggle{i}"):
-                verified_sheet.update_cell(i + 2, 3, "Yes")
+        products = {
+            "basic": {"name": "Basic Kit", "price": 249},
+            "utility": {"name": "Utility Kit", "price": 199},
+            "hygiene": {"name": "Hygiene Kit", "price": 129},
+            "combo": {"name": "Combo Kit", "price": 499}
+        }
+
+        for key in products:
+            p = products[key]
+
+            st.write(f"{p['name']} - ₹{p['price']}")
+
+            if key in cart:
+                if st.button("❌ Remove", key=f"r{key}"):
+                    del cart[key]
+                    st.rerun()
+            else:
+                if st.button("Add", key=f"a{key}"):
+                    cart[key] = p
+                    st.rerun()
+
+        if cart:
+            total = sum(i["price"] for i in cart.values())
+
+            st.write(f"### Total: ₹{total}")
+
+            if st.button("Place Order"):
+
+                items = ", ".join([i["name"] for i in cart.values()])
+
+                order_sheet.append_row([
+                    name,
+                    phone,
+                    selected_pg,
+                    items,
+                    total,
+                    "Pending",
+                    str(datetime.now()),
+                    ""  # screenshot column
+                ])
+
+                st.session_state.order_done = True
+                st.session_state.total = total
                 st.rerun()
 
+        # -----------------------
+        # PAYMENT
+        # -----------------------
+        if st.session_state.get("order_done"):
+
+            total = st.session_state.total
+            upi = f"upi://pay?pa=reddyinvites@okicici&pn=MoveIn&am={total}"
+
+            st.success("Order placed!")
+
+            if "paid_clicked" not in st.session_state:
+                st.session_state.paid_clicked = False
+
+            if st.button("💰 Pay Now"):
+                st.session_state.paid_clicked = True
+                st.markdown(f"[Click here to Pay]({upi})")
+
+            if st.session_state.paid_clicked:
+
+                st.divider()
+                st.write("📤 Upload Payment Screenshot")
+
+                file = st.file_uploader("Upload Screenshot", type=["png","jpg","jpeg"])
+
+                if file:
+                    st.image(file, width=200)
+
+                    # Upload to Cloudinary
+                    result = cloudinary.uploader.upload(file)
+                    image_url = result["secure_url"]
+
+                    # Save URL in sheet
+                    last_row = len(order_sheet.get_all_values())
+                    order_sheet.update_cell(last_row, 8, image_url)
+
+                    st.success("✅ Screenshot uploaded!")
+                    st.info("📲 We will verify and send WhatsApp confirmation.")
+
+# =====================
+# ADMIN DASHBOARD
+# =====================
+elif st.session_state.page == "admin":
+
+    st.title("👨‍💼 Admin Dashboard")
+
+    password = st.text_input("Password", type="password")
+
+    if password != "1234":
+        st.stop()
+
+    data = order_sheet.get_all_values()
+    headers = data[0]
+    rows = data[1:]
+
+    for i in reversed(range(len(rows))):
+
+        o = dict(zip(headers, rows[i]))
+
+        st.write(f"👤 {o.get('Owner_name')} | 📞 {o.get('phone_number')}")
+        st.write(f"🏠 {o.get('pg_name')} | 🛒 {o.get('items')}")
+
+        # Screenshot display
+        if o.get("screenshot"):
+            st.success("📸 Screenshot Uploaded")
+            st.image(o["screenshot"], width=150)
+        else:
+            st.warning("❌ No Screenshot")
+
         st.divider()
-
-# -----------------------
-# GALLERY (FIXED SAFE)
-# -----------------------
-if menu == "🖼 Gallery":
-
-    st.header("🖼 PG Gallery")
-
-    data = verified_sheet.get_all_records()
-
-    for pg in data:
-
-        st.markdown(f"## 🏠 {pg.get('name')}")
-        st.caption(f"📍 {pg.get('location')}")
-
-        images = str(pg.get("images", "")).split("|")
-
-        for block in images:
-
-            if ":" in block:
-                try:
-                    cat, urls = block.split(":", 1)
-                    urls = urls.split(",")
-
-                    st.markdown(f"### 🔹 {cat.upper()}")
-
-                    cols = st.columns(3)
-
-                    for i, img in enumerate(urls):
-                        if img.startswith("http"):
-                            cols[i % 3].image(img, use_container_width=True)
-
-                except:
-                    continue
-
-            else:
-                # fallback for old data
-                if block.startswith("http"):
-                    st.image(block, use_container_width=True)
-
-        # VIDEOS
-        videos = str(pg.get("videos", "")).split("|")
-
-        valid_videos = [v for v in videos if v.startswith("http")]
-
-        if valid_videos:
-            st.markdown("### 🎥 Videos")
-            for v in valid_videos:
-                st.video(v)
-
-        st.markdown("---")
