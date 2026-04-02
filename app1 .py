@@ -1,264 +1,321 @@
 import streamlit as st
+import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
 
 # -----------------------
-# SESSION INIT
+# CONFIG
 # -----------------------
-if "page" not in st.session_state:
-    st.session_state.page = "home"
+PG_DATA_ID = "1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q"
+PG_APP_ID = "1GbSoVjomgzl52VD8KB2fK1wmQIIYxUlkI4ADgnYYvxw"
 
-if "cart" not in st.session_state:
-    st.session_state.cart = {}
-
-if "arrived" not in st.session_state:
-    st.session_state.arrived = False
+ADMIN_USER = "admin"
+ADMIN_PASS = "admin123"
 
 # -----------------------
-# GOOGLE SHEETS
+# AUTH
 # -----------------------
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-gcp_info = dict(st.secrets["gcp_service_account"])
-gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
-
-creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
-client = gspread.authorize(creds)
-
-sheet = client.open_by_key("1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q")
-
-# -----------------------
-# SHEETS
-# -----------------------
-pg_sheet = sheet.sheet1
-order_sheet = sheet.worksheet("orders")
+def get_client():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scope
+    )
+    return gspread.authorize(creds)
 
 # -----------------------
-# LOAD PG DATA (STRICT FIX)
+# LOAD DATA
 # -----------------------
-pg_raw = pg_sheet.get_all_records()
+@st.cache_data(ttl=60)
+def load_data():
+    client = get_client()
 
-pg_data = []
-for row in pg_raw:
-    val = row.get("pg_name") or row.get("pg")
-    if val:
-        pg_data.append(val)
+    # PG DATA
+    try:
+        pg_file = client.open_by_key(PG_DATA_ID)
+        pg_sheet = pg_file.worksheet("rooms")
+        pg_df = pd.DataFrame(pg_sheet.get_all_records())
+    except:
+        pg_df = pd.DataFrame(columns=["pg_id", "pg_name"])
 
-pg_data = sorted(list(set(pg_data)))
+    # APP DATA
+    app_file = client.open_by_key(PG_APP_ID)
 
-# =====================
-# HOME
-# =====================
-if st.session_state.page == "home":
+    owners_df = pd.DataFrame(app_file.worksheet("Owners").get_all_records())
+    rooms_df = pd.DataFrame(app_file.worksheet("rooms").get_all_records())
+    bookings_df = pd.DataFrame(app_file.worksheet("Bookings").get_all_records())
 
-    st.title("🏠 Move-in Assistant")
+    return pg_df, owners_df, rooms_df, bookings_df
 
-    col1, col2 = st.columns(2)
+# -----------------------
+# GET SHEETS
+# -----------------------
+def get_sheets():
+    client = get_client()
 
-    if col1.button("👤 User"):
-        st.session_state.page = "user"
-        st.rerun()
+    app_file = client.open_by_key(PG_APP_ID)
 
-    if col2.button("👨‍💼 Admin"):
-        st.session_state.page = "admin"
-        st.rerun()
+    owners_sheet = app_file.worksheet("Owners")
+    rooms_sheet = app_file.worksheet("rooms")
+    bookings_sheet = app_file.worksheet("Bookings")
 
-# =====================
-# USER DASHBOARD
-# =====================
-elif st.session_state.page == "user":
+    return owners_sheet, rooms_sheet, bookings_sheet
 
-    st.title("👤 User Dashboard")
+pg_df, owners_df, rooms_df, bookings_df = load_data()
+owners_sheet, rooms_sheet, bookings_sheet = get_sheets()
 
-    name = st.text_input("Name")
-    phone = st.text_input("Phone")
+# -----------------------
+# SESSION
+# -----------------------
+if "login" not in st.session_state:
+    st.session_state.login = False
+if "role" not in st.session_state:
+    st.session_state.role = ""
+if "username" not in st.session_state:
+    st.session_state.username = ""
 
-    selected_pg = st.selectbox("Select PG", pg_data)
+# -----------------------
+# LOGIN
+# -----------------------
+if not st.session_state.login:
 
-    if st.button("📍 I reached PG"):
-        st.session_state.arrived = True
-        st.rerun()
+    st.title("🔐 Login")
 
-    if st.session_state.arrived:
-
-        st.success("Choose your essentials 👇")
-
-        cart = st.session_state.cart
-
-        products = {
-            "basic": {"name": "Basic Kit", "price": 249},
-            "utility": {"name": "Utility Kit", "price": 199},
-            "hygiene": {"name": "Hygiene Kit", "price": 129},
-            "combo": {"name": "Combo Kit", "price": 499}
-        }
-
-        combo_selected = "combo" in cart
-        others_selected = any(k in cart for k in ["basic","utility","hygiene"])
-
-        for key in ["basic","utility","hygiene"]:
-            p = products[key]
-
-            st.write(f"{p['name']} - ₹{p['price']}")
-
-            if combo_selected:
-                st.button("Add", disabled=True, key=f"d{key}")
-            else:
-                if key in cart:
-                    if st.button("❌ Remove", key=f"r{key}"):
-                        del cart[key]
-                        st.rerun()
-                else:
-                    if st.button("Add", key=f"a{key}"):
-                        cart[key] = p
-                        st.rerun()
-
-        p = products["combo"]
-        st.write(f"🎁 Combo Kit - ₹{p['price']}")
-
-        if "combo" in cart:
-            if st.button("❌ Remove Combo"):
-                del cart["combo"]
-                st.rerun()
-        else:
-            if others_selected:
-                st.button("Add Combo", disabled=True)
-            else:
-                if st.button("Add Combo"):
-                    cart.clear()
-                    cart["combo"] = p
-                    st.rerun()
-
-        st.divider()
-
-        if cart:
-            total = sum(i["price"] for i in cart.values())
-
-            st.write("🛒 Selected Items:")
-            for i in cart.values():
-                st.write(i["name"])
-
-            st.write(f"### Total: ₹{total}")
-
-            if st.button("Place Order"):
-
-                items = ", ".join([i["name"] for i in cart.values()])
-
-                order_sheet.append_row([
-                    name,
-                    phone,
-                    selected_pg,
-                    items,
-                    total,
-                    "Pending",
-                    str(datetime.now())
-                ])
-
-                st.session_state.order_done = True
-                st.session_state.total = total
-                st.rerun()
-
-        # =====================
-        # PAYMENT (UPDATED ONLY)
-        # =====================
-        if st.session_state.get("order_done"):
-
-            total = st.session_state.total
-            upi = f"upi://pay?pa=reddyinvites@okicici&pn=MoveIn&am={total}"
-
-            st.success("Order placed!")
-
-            # ✅ state for payment click
-            if "paid_clicked" not in st.session_state:
-                st.session_state.paid_clicked = False
-
-            # ✅ PAY BUTTON
-            if st.button("💰 Pay Now"):
-                st.session_state.paid_clicked = True
-                st.markdown(f"[Click here to Pay]({upi})")
-
-            # ✅ ENABLE UPLOAD AFTER CLICK
-            if st.session_state.paid_clicked:
-
-                st.divider()
-                st.write("📤 Upload Payment Screenshot")
-
-                file = st.file_uploader("Upload Screenshot", type=["png", "jpg", "jpeg"])
-
-                if file:
-                    # ✅ small image
-                    st.image(file, width=200)
-
-                    st.success("✅ Screenshot uploaded successfully!")
-
-                    st.info("📲 We will verify your payment and send confirmation on WhatsApp shortly.")
-
-                    st.divider()
-
-                    if st.button("🚪 Logout"):
-                        st.session_state.clear()
-                        st.session_state.page = "home"
-                        st.rerun()
-
-# =====================
-# ADMIN DASHBOARD
-# =====================
-elif st.session_state.page == "admin":
-
-    st.title("👨‍💼 Admin Dashboard")
-
+    role = st.selectbox("Login as", ["Admin", "Owner"])
+    username = st.text_input("Username")
     password = st.text_input("Password", type="password")
 
-    if password != "1234":
-        st.stop()
+    if st.button("Login"):
 
-    if st.button("🚪 Logout"):
+        if role == "Admin":
+            if username == ADMIN_USER and password == ADMIN_PASS:
+                st.session_state.login = True
+                st.session_state.role = "admin"
+                st.rerun()
+            else:
+                st.error("Invalid Admin ❌")
+
+        else:
+            owners_df["username"] = owners_df["username"].astype(str).str.strip().str.lower()
+            owners_df["password"] = owners_df["password"].astype(str).str.strip()
+
+            user = owners_df[
+                (owners_df["username"] == username.strip().lower()) &
+                (owners_df["password"] == password.strip())
+            ]
+
+            if not user.empty:
+                st.session_state.login = True
+                st.session_state.role = "owner"
+                st.session_state.username = username.strip().lower()
+                st.rerun()
+            else:
+                st.error("Invalid Owner ❌")
+
+# -----------------------
+# ADMIN DASHBOARD
+# -----------------------
+elif st.session_state.role == "admin":
+
+    st.title("🛠 Admin Dashboard")
+
+    if st.button("Logout"):
         st.session_state.clear()
-        st.session_state.page = "home"
         st.rerun()
 
-    st.divider()
+    # CREATE OWNER
+    st.subheader("➕ Create Owner")
 
-    data = order_sheet.get_all_values()
-    headers = data[0]
-    rows = data[1:]
+    pg_names = pg_df["pg_name"].dropna().tolist() if "pg_name" in pg_df.columns else []
+    selected_pg = st.selectbox("Select PG", pg_names)
 
-    for i in reversed(range(len(rows))):
+    new_user = st.text_input("Owner Username")
+    new_pass = st.text_input("Owner Password")
 
-        row_index = i + 2
-        o = dict(zip(headers, rows[i]))
+    if st.button("Create Owner"):
+        if new_user and new_pass:
+            try:
+                pg_id = pg_df[pg_df["pg_name"] == selected_pg]["pg_id"].values[0]
 
-        st.write(f"👤 {o['owner_name']} | 📞 {o['phone_number']}")
-        st.write(f"🛒 {o['items']} | ₹{o['total']}")
+                owners_sheet.append_row([
+                    new_user.strip(),
+                    new_pass.strip(),
+                    pg_id,
+                    selected_pg
+                ])
 
-        if o["status"] == "Pending":
-            st.warning("Pending")
-        elif o["status"] == "Paid":
-            st.success("Paid")
-
-        col1, col2 = st.columns(2)
-
-        if o["status"] == "Pending":
-            if col1.button("Approve", key=f"a{i}"):
-
-                order_sheet.update_cell(row_index, 6, "Paid")
-
-                msg = f"Hello {o['owner_name']}, your payment confirmed!"
-                wa = f"https://wa.me/{o['phone_number']}?text={msg.replace(' ','%20')}"
-
-                st.markdown(f"""
-                    <script>
-                        window.open("{wa}", "_blank");
-                    </script>
-                """, unsafe_allow_html=True)
-
+                st.success("Owner Created ✅")
+                st.cache_data.clear()
                 st.rerun()
 
-        if col2.button("Cancel", key=f"c{i}"):
-            order_sheet.delete_rows(row_index)
-            st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+        else:
+            st.error("Enter all fields ❌")
 
-        st.divider()
+    # OWNER LIST
+    st.subheader("📋 Owners List")
+
+    if not owners_df.empty:
+
+        owners_df["username"] = owners_df["username"].astype(str).str.strip()
+
+        search = st.text_input("🔍 Search Owner")
+
+        filtered_df = owners_df[
+            owners_df["username"].str.contains(search, case=False)
+        ] if search else owners_df
+
+        st.dataframe(filtered_df, use_container_width=True)
+
+        # DELETE OWNER
+        st.subheader("❌ Delete Owner")
+
+        selected_owner = st.selectbox("Select Owner", filtered_df["username"])
+
+        if st.button("Delete Owner"):
+            try:
+                all_values = owners_sheet.get_all_values()
+
+                for i, row in enumerate(all_values):
+                    if row[0].strip() == selected_owner.strip():
+                        owners_sheet.delete_rows(i + 1)
+                        break
+
+                st.success("Owner Deleted ✅")
+                st.cache_data.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+        # RESET PASSWORD
+        st.subheader("🔑 Reset Password")
+
+        selected_owner2 = st.selectbox("Select Owner", owners_df["username"], key="reset")
+        new_password = st.text_input("New Password")
+
+        if st.button("Update Password"):
+            try:
+                all_values = owners_sheet.get_all_values()
+
+                for i, row in enumerate(all_values):
+                    if row[0].strip() == selected_owner2.strip():
+                        owners_sheet.update_cell(i + 1, 2, new_password.strip())
+                        break
+
+                st.success("Password Updated ✅")
+                st.cache_data.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    else:
+        st.info("No owners available")
+
+# -----------------------
+# OWNER DASHBOARD
+# -----------------------
+elif st.session_state.role == "owner":
+
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
+
+    owners_df["username"] = owners_df["username"].astype(str).str.strip().str.lower()
+
+    owner_data = owners_df[
+        owners_df["username"] == st.session_state.username
+    ]
+
+    if owner_data.empty:
+        st.error("Owner data missing ❌")
+        st.stop()
+
+    owner_pg_id = owner_data.iloc[0]["pg_id"]
+    owner_pg_name = owner_data.iloc[0]["pg_name"]
+
+    st.title(f"🏠 {owner_pg_name}")
+
+    # ROOMS
+    st.subheader("🛏 Rooms")
+    owner_rooms = rooms_df[rooms_df["pg_id"] == owner_pg_id]
+    st.dataframe(owner_rooms, use_container_width=True)
+
+    # DELETE ROOM (NEW)
+    st.subheader("❌ Delete Room")
+
+    if not owner_rooms.empty:
+
+        room_options = owner_rooms["room_no"].astype(str).tolist()
+
+        selected_room = st.selectbox("Select Room to Delete", room_options)
+
+        if st.button("Delete Room"):
+            try:
+                all_values = rooms_sheet.get_all_values()
+
+                for i, row in enumerate(all_values):
+                    if str(row[2]).strip() == selected_room.strip() and str(row[0]).strip() == str(owner_pg_id):
+                        rooms_sheet.delete_rows(i + 1)
+                        break
+
+                st.success("Room Deleted ✅")
+                st.cache_data.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    else:
+        st.info("No rooms to delete")
+
+    # ADD ROOM
+    st.subheader("➕ Add Room")
+
+    room_no = st.text_input("Room Number")
+    floor = st.number_input("Floor", min_value=0)
+
+    sharing = st.selectbox("Sharing", [1, 2, 3, 4])
+    total_beds = st.number_input("Total Beds", min_value=1, max_value=sharing)
+    available_beds = st.number_input("Available Beds", min_value=0, max_value=total_beds)
+
+    if st.button("Add Room"):
+
+        if not room_no:
+            st.error("Enter room number ❌")
+        else:
+            try:
+                new_row = [
+                    owner_pg_id,
+                    owner_pg_name,
+                    room_no,
+                    int(floor),
+                    int(sharing),
+                    int(available_beds),
+                    int(total_beds),
+                    pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+                ]
+
+                rooms_sheet.append_row(new_row)
+
+                st.success("Room Added ✅")
+                st.cache_data.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    # BOOKINGS
+    st.subheader("📋 Bookings")
+
+    if not bookings_df.empty and "pg_id" in bookings_df.columns:
+        owner_bookings = bookings_df[bookings_df["pg_id"] == owner_pg_id]
+        st.dataframe(owner_bookings, use_container_width=True)
+    else:
+        st.info("No bookings yet")
