@@ -1,321 +1,215 @@
 import streamlit as st
-import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+import cloudinary
+import cloudinary.uploader
+
+st.set_page_config(page_title="PG Admin", layout="wide")
 
 # -----------------------
 # CONFIG
 # -----------------------
-PG_DATA_ID = "1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q"
-PG_APP_ID = "1GbSoVjomgzl52VD8KB2fK1wmQIIYxUlkI4ADgnYYvxw"
+cloudinary.config(
+    cloud_name=st.secrets["cloudinary"]["cloud_name"],
+    api_key=st.secrets["cloudinary"]["api_key"],
+    api_secret=st.secrets["cloudinary"]["api_secret"]
+)
 
-ADMIN_USER = "admin"
-ADMIN_PASS = "admin123"
-
-# -----------------------
-# AUTH
-# -----------------------
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-def get_client():
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scope
-    )
-    return gspread.authorize(creds)
+gcp_info = dict(st.secrets["gcp_service_account"])
+gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
+
+creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
+client = gspread.authorize(creds)
 
 # -----------------------
-# LOAD DATA
+# SHEETS
 # -----------------------
-@st.cache_data(ttl=60)
-def load_data():
-    client = get_client()
+PG_DATA_ID = "1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q"
+VERIFIED_ID = "191Fg2-jLtpvziqFrUdQNV2ki1iXYe_fdTGYv3_Tm7wA"
 
-    # PG DATA
-    try:
-        pg_file = client.open_by_key(PG_DATA_ID)
-        pg_sheet = pg_file.worksheet("rooms")
-        pg_df = pd.DataFrame(pg_sheet.get_all_records())
-    except:
-        pg_df = pd.DataFrame(columns=["pg_id", "pg_name"])
-
-    # APP DATA
-    app_file = client.open_by_key(PG_APP_ID)
-
-    owners_df = pd.DataFrame(app_file.worksheet("Owners").get_all_records())
-    rooms_df = pd.DataFrame(app_file.worksheet("rooms").get_all_records())
-    bookings_df = pd.DataFrame(app_file.worksheet("Bookings").get_all_records())
-
-    return pg_df, owners_df, rooms_df, bookings_df
-
-# -----------------------
-# GET SHEETS
-# -----------------------
-def get_sheets():
-    client = get_client()
-
-    app_file = client.open_by_key(PG_APP_ID)
-
-    owners_sheet = app_file.worksheet("Owners")
-    rooms_sheet = app_file.worksheet("rooms")
-    bookings_sheet = app_file.worksheet("Bookings")
-
-    return owners_sheet, rooms_sheet, bookings_sheet
-
-pg_df, owners_df, rooms_df, bookings_df = load_data()
-owners_sheet, rooms_sheet, bookings_sheet = get_sheets()
-
-# -----------------------
-# SESSION
-# -----------------------
-if "login" not in st.session_state:
-    st.session_state.login = False
-if "role" not in st.session_state:
-    st.session_state.role = ""
-if "username" not in st.session_state:
-    st.session_state.username = ""
+pg_sheet = client.open_by_key(PG_DATA_ID).worksheet("Sheet1")
+verified_sheet = client.open_by_key(VERIFIED_ID).worksheet("verified_pg")
 
 # -----------------------
 # LOGIN
 # -----------------------
-if not st.session_state.login:
+st.title("👨‍💼 Admin Panel")
 
-    st.title("🔐 Login")
+password = st.text_input("Password", type="password")
 
-    role = st.selectbox("Login as", ["Admin", "Owner"])
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+if password != "1234":
+    st.stop()
 
-    if st.button("Login"):
-
-        if role == "Admin":
-            if username == ADMIN_USER and password == ADMIN_PASS:
-                st.session_state.login = True
-                st.session_state.role = "admin"
-                st.rerun()
-            else:
-                st.error("Invalid Admin ❌")
-
-        else:
-            owners_df["username"] = owners_df["username"].astype(str).str.strip().str.lower()
-            owners_df["password"] = owners_df["password"].astype(str).str.strip()
-
-            user = owners_df[
-                (owners_df["username"] == username.strip().lower()) &
-                (owners_df["password"] == password.strip())
-            ]
-
-            if not user.empty:
-                st.session_state.login = True
-                st.session_state.role = "owner"
-                st.session_state.username = username.strip().lower()
-                st.rerun()
-            else:
-                st.error("Invalid Owner ❌")
+st.success("✅ Logged in")
 
 # -----------------------
-# ADMIN DASHBOARD
+# ☰ MENU
 # -----------------------
-elif st.session_state.role == "admin":
+st.sidebar.title("☰ Menu")
+menu = st.sidebar.radio("Go to", ["➕ Add PG", "📋 Manage PGs", "🖼 Gallery"])
 
-    st.title("🛠 Admin Dashboard")
+# -----------------------
+# ADD PG
+# -----------------------
+if menu == "➕ Add PG":
 
-    if st.button("Logout"):
+    pg_rows = pg_sheet.get_all_values()
+
+    options = []
+    for row in pg_rows[1:]:
+        if len(row) >= 3:
+            name = row[1].strip()
+            location = row[2].strip()
+            if name and location:
+                options.append(f"{name}|{location}")
+
+    selected = st.selectbox("Select PG", options)
+
+    name, location = selected.split("|")
+
+    st.text_input("Name", value=name, disabled=True)
+    st.text_input("Location", value=location, disabled=True)
+
+    verified = st.selectbox("Verified", ["Yes", "No"])
+
+    categories = ["room", "bath", "food", "dining", "storage", "outside"]
+
+    category_inputs = {}
+
+    for cat in categories:
+        st.subheader(f"📸 {cat.upper()}")
+        files = st.file_uploader(cat, accept_multiple_files=True, key=cat)
+        category_inputs[cat] = files
+
+    st.subheader("🎥 Videos")
+    video_files = st.file_uploader("videos", accept_multiple_files=True)
+
+    if st.button("💾 Save PG"):
+
+        # ❌ DUPLICATE CHECK
+        existing = verified_sheet.get_all_records()
+        for row in existing:
+            if row.get("name") == name:
+                st.error("❌ Already uploaded this PG")
+                st.stop()
+
+        category_data = []
+
+        # Upload images
+        for cat, files in category_inputs.items():
+            urls = []
+            if files:
+                for file in files:
+                    res = cloudinary.uploader.upload(file)
+                    urls.append(res["secure_url"])
+            if urls:
+                category_data.append(f"{cat}:{','.join(urls)}")
+
+        # Upload videos
+        video_urls = []
+        if video_files:
+            for file in video_files:
+                res = cloudinary.uploader.upload(file, resource_type="video")
+                video_urls.append(res["secure_url"])
+
+        verified_sheet.append_row([
+            name,
+            location,
+            verified,
+            "|".join(category_data),
+            "|".join(video_urls)
+        ])
+
+        st.success("✅ Saved Successfully")
+
+        # CLEAR FORM
         st.session_state.clear()
         st.rerun()
 
-    # CREATE OWNER
-    st.subheader("➕ Create Owner")
+# -----------------------
+# MANAGE PGs
+# -----------------------
+if menu == "📋 Manage PGs":
 
-    pg_names = pg_df["pg_name"].dropna().tolist() if "pg_name" in pg_df.columns else []
-    selected_pg = st.selectbox("Select PG", pg_names)
+    st.header("📋 Manage PGs")
 
-    new_user = st.text_input("Owner Username")
-    new_pass = st.text_input("Owner Password")
+    data = verified_sheet.get_all_records()
 
-    if st.button("Create Owner"):
-        if new_user and new_pass:
-            try:
-                pg_id = pg_df[pg_df["pg_name"] == selected_pg]["pg_id"].values[0]
+    for i, pg in enumerate(data):
 
-                owners_sheet.append_row([
-                    new_user.strip(),
-                    new_pass.strip(),
-                    pg_id,
-                    selected_pg
-                ])
+        st.subheader(f"🏠 {pg.get('name')}")
+        st.write(f"📍 {pg.get('location')}")
 
-                st.success("Owner Created ✅")
-                st.cache_data.clear()
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Error: {e}")
+        if pg.get("verified") == "Yes":
+            st.success("✅ Verified")
         else:
-            st.error("Enter all fields ❌")
+            st.warning("❌ Not Verified")
 
-    # OWNER LIST
-    st.subheader("📋 Owners List")
+        col1, col2 = st.columns(2)
 
-    if not owners_df.empty:
+        if col1.button("❌ Delete", key=f"delete{i}"):
+            verified_sheet.delete_rows(i + 2)
+            st.rerun()
 
-        owners_df["username"] = owners_df["username"].astype(str).str.strip()
-
-        search = st.text_input("🔍 Search Owner")
-
-        filtered_df = owners_df[
-            owners_df["username"].str.contains(search, case=False)
-        ] if search else owners_df
-
-        st.dataframe(filtered_df, use_container_width=True)
-
-        # DELETE OWNER
-        st.subheader("❌ Delete Owner")
-
-        selected_owner = st.selectbox("Select Owner", filtered_df["username"])
-
-        if st.button("Delete Owner"):
-            try:
-                all_values = owners_sheet.get_all_values()
-
-                for i, row in enumerate(all_values):
-                    if row[0].strip() == selected_owner.strip():
-                        owners_sheet.delete_rows(i + 1)
-                        break
-
-                st.success("Owner Deleted ✅")
-                st.cache_data.clear()
+        if pg.get("verified") != "Yes":
+            if col2.button("🔄 Verify", key=f"toggle{i}"):
+                verified_sheet.update_cell(i + 2, 3, "Yes")
                 st.rerun()
 
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-        # RESET PASSWORD
-        st.subheader("🔑 Reset Password")
-
-        selected_owner2 = st.selectbox("Select Owner", owners_df["username"], key="reset")
-        new_password = st.text_input("New Password")
-
-        if st.button("Update Password"):
-            try:
-                all_values = owners_sheet.get_all_values()
-
-                for i, row in enumerate(all_values):
-                    if row[0].strip() == selected_owner2.strip():
-                        owners_sheet.update_cell(i + 1, 2, new_password.strip())
-                        break
-
-                st.success("Password Updated ✅")
-                st.cache_data.clear()
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-    else:
-        st.info("No owners available")
+        st.divider()
 
 # -----------------------
-# OWNER DASHBOARD
+# GALLERY (FIXED SAFE)
 # -----------------------
-elif st.session_state.role == "owner":
+if menu == "🖼 Gallery":
 
-    if st.button("Logout"):
-        st.session_state.clear()
-        st.rerun()
+    st.header("🖼 PG Gallery")
 
-    owners_df["username"] = owners_df["username"].astype(str).str.strip().str.lower()
+    data = verified_sheet.get_all_records()
 
-    owner_data = owners_df[
-        owners_df["username"] == st.session_state.username
-    ]
+    for pg in data:
 
-    if owner_data.empty:
-        st.error("Owner data missing ❌")
-        st.stop()
+        st.markdown(f"## 🏠 {pg.get('name')}")
+        st.caption(f"📍 {pg.get('location')}")
 
-    owner_pg_id = owner_data.iloc[0]["pg_id"]
-    owner_pg_name = owner_data.iloc[0]["pg_name"]
+        images = str(pg.get("images", "")).split("|")
 
-    st.title(f"🏠 {owner_pg_name}")
+        for block in images:
 
-    # ROOMS
-    st.subheader("🛏 Rooms")
-    owner_rooms = rooms_df[rooms_df["pg_id"] == owner_pg_id]
-    st.dataframe(owner_rooms, use_container_width=True)
+            if ":" in block:
+                try:
+                    cat, urls = block.split(":", 1)
+                    urls = urls.split(",")
 
-    # DELETE ROOM (NEW)
-    st.subheader("❌ Delete Room")
+                    st.markdown(f"### 🔹 {cat.upper()}")
 
-    if not owner_rooms.empty:
+                    cols = st.columns(3)
 
-        room_options = owner_rooms["room_no"].astype(str).tolist()
+                    for i, img in enumerate(urls):
+                        if img.startswith("http"):
+                            cols[i % 3].image(img, use_container_width=True)
 
-        selected_room = st.selectbox("Select Room to Delete", room_options)
+                except:
+                    continue
 
-        if st.button("Delete Room"):
-            try:
-                all_values = rooms_sheet.get_all_values()
+            else:
+                # fallback for old data
+                if block.startswith("http"):
+                    st.image(block, use_container_width=True)
 
-                for i, row in enumerate(all_values):
-                    if str(row[2]).strip() == selected_room.strip() and str(row[0]).strip() == str(owner_pg_id):
-                        rooms_sheet.delete_rows(i + 1)
-                        break
+        # VIDEOS
+        videos = str(pg.get("videos", "")).split("|")
 
-                st.success("Room Deleted ✅")
-                st.cache_data.clear()
-                st.rerun()
+        valid_videos = [v for v in videos if v.startswith("http")]
 
-            except Exception as e:
-                st.error(f"Error: {e}")
+        if valid_videos:
+            st.markdown("### 🎥 Videos")
+            for v in valid_videos:
+                st.video(v)
 
-    else:
-        st.info("No rooms to delete")
-
-    # ADD ROOM
-    st.subheader("➕ Add Room")
-
-    room_no = st.text_input("Room Number")
-    floor = st.number_input("Floor", min_value=0)
-
-    sharing = st.selectbox("Sharing", [1, 2, 3, 4])
-    total_beds = st.number_input("Total Beds", min_value=1, max_value=sharing)
-    available_beds = st.number_input("Available Beds", min_value=0, max_value=total_beds)
-
-    if st.button("Add Room"):
-
-        if not room_no:
-            st.error("Enter room number ❌")
-        else:
-            try:
-                new_row = [
-                    owner_pg_id,
-                    owner_pg_name,
-                    room_no,
-                    int(floor),
-                    int(sharing),
-                    int(available_beds),
-                    int(total_beds),
-                    pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                ]
-
-                rooms_sheet.append_row(new_row)
-
-                st.success("Room Added ✅")
-                st.cache_data.clear()
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-    # BOOKINGS
-    st.subheader("📋 Bookings")
-
-    if not bookings_df.empty and "pg_id" in bookings_df.columns:
-        owner_bookings = bookings_df[bookings_df["pg_id"] == owner_pg_id]
-        st.dataframe(owner_bookings, use_container_width=True)
-    else:
-        st.info("No bookings yet")
+        st.markdown("---")
