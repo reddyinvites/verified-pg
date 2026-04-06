@@ -48,34 +48,46 @@ if password != "1234":
 st.success("✅ Logged in")
 
 # -----------------------
-# ☰ MENU
+# SIDEBAR
 # -----------------------
 st.sidebar.title("☰ Menu")
 menu = st.sidebar.radio("Go to", ["➕ Add PG", "📋 Manage PGs", "🖼 Gallery"])
 
 # -----------------------
-# ADD PG
+# ADD PG (GROUPED)
 # -----------------------
 if menu == "➕ Add PG":
 
     pg_rows = pg_sheet.get_all_values()
 
-    options = []
+    pg_map = {}
+
     for row in pg_rows[1:]:
         if len(row) >= 3:
             name = row[1].strip()
             location = row[2].strip()
-            if name and location:
-                options.append(f"{name}|{location}")
 
-    selected = st.selectbox("Select PG", options)
+            key = f"{name}|{location}"
+
+            if key not in pg_map:
+                pg_map[key] = []
+
+            pg_map[key].append(row)
+
+    options = list(pg_map.keys())
+
+    selected = st.selectbox("Select PG", ["Select PG"] + options)
+
+    if selected == "Select PG":
+        st.stop()
 
     name, location = selected.split("|")
 
     st.text_input("Name", value=name, disabled=True)
     st.text_input("Location", value=location, disabled=True)
 
-    verified = st.selectbox("Verified", ["Yes", "No"])
+    # ✅ VERIFIED FIX
+    verified = st.selectbox("Verified", ["Select", "Yes", "No"], index=0)
 
     categories = ["room", "bath", "food", "dining", "storage", "outside"]
 
@@ -89,50 +101,87 @@ if menu == "➕ Add PG":
     st.subheader("🎥 Videos")
     video_files = st.file_uploader("videos", accept_multiple_files=True)
 
+    # ---------------- SAVE ----------------
     if st.button("💾 Save PG"):
 
-        # ❌ DUPLICATE CHECK
-        existing = verified_sheet.get_all_records()
-        for row in existing:
-            if row.get("name") == name:
-                st.error("❌ Already uploaded this PG")
-                st.stop()
+        if verified == "Select":
+            st.error("❌ Please select verification status")
+            st.stop()
+
+        all_data = verified_sheet.get_all_records()
+
+        row_index = None
+        existing_images = ""
+        existing_videos = ""
+
+        # 🔍 FIND EXISTING PG
+        for i, row in enumerate(all_data):
+            if row.get("name") == name and row.get("location") == location:
+                row_index = i + 2
+                existing_images = str(row.get("images", ""))
+                existing_videos = str(row.get("videos", ""))
+                break
 
         category_data = []
 
-        # Upload images
+        # 📸 UPLOAD IMAGES
         for cat, files in category_inputs.items():
             urls = []
             if files:
                 for file in files:
                     res = cloudinary.uploader.upload(file)
                     urls.append(res["secure_url"])
+
             if urls:
                 category_data.append(f"{cat}:{','.join(urls)}")
 
-        # Upload videos
+        new_images = "|".join(category_data)
+
+        # 🎥 UPLOAD VIDEOS
         video_urls = []
         if video_files:
             for file in video_files:
                 res = cloudinary.uploader.upload(file, resource_type="video")
                 video_urls.append(res["secure_url"])
 
-        verified_sheet.append_row([
-            name,
-            location,
-            verified,
-            "|".join(category_data),
-            "|".join(video_urls)
-        ])
+        new_videos = "|".join(video_urls)
 
-        st.success("✅ Saved Successfully")
+        # 🔗 MERGE FUNCTION
+        def merge(old, new):
+            if old and new:
+                return old + "|" + new
+            elif new:
+                return new
+            else:
+                return old
 
-        # CLEAR FORM
+        final_images = merge(existing_images, new_images)
+        final_videos = merge(existing_videos, new_videos)
+
+        # ✏️ UPDATE OR ADD
+        if row_index:
+            verified_sheet.update_cell(row_index, 3, verified)
+            verified_sheet.update_cell(row_index, 4, final_images)
+            verified_sheet.update_cell(row_index, 5, final_videos)
+
+            st.success("🔄 PG Updated Successfully")
+
+        else:
+            verified_sheet.append_row([
+                name,
+                location,
+                verified,
+                final_images,
+                final_videos
+            ])
+
+            st.success("✅ New PG Added")
+
         st.session_state.clear()
         st.rerun()
 
 # -----------------------
-# MANAGE PGs
+# MANAGE PG
 # -----------------------
 if menu == "📋 Manage PGs":
 
@@ -157,14 +206,14 @@ if menu == "📋 Manage PGs":
             st.rerun()
 
         if pg.get("verified") != "Yes":
-            if col2.button("🔄 Verify", key=f"toggle{i}"):
+            if col2.button("🔄 Verify", key=f"verify{i}"):
                 verified_sheet.update_cell(i + 2, 3, "Yes")
                 st.rerun()
 
         st.divider()
 
 # -----------------------
-# GALLERY (FIXED SAFE)
+# GALLERY
 # -----------------------
 if menu == "🖼 Gallery":
 
@@ -197,14 +246,8 @@ if menu == "🖼 Gallery":
                 except:
                     continue
 
-            else:
-                # fallback for old data
-                if block.startswith("http"):
-                    st.image(block, use_container_width=True)
-
-        # VIDEOS
+        # 🎥 VIDEOS
         videos = str(pg.get("videos", "")).split("|")
-
         valid_videos = [v for v in videos if v.startswith("http")]
 
         if valid_videos:
