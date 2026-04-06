@@ -54,7 +54,7 @@ st.sidebar.title("☰ Menu")
 menu = st.sidebar.radio("Go to", ["➕ Add PG", "📋 Manage PGs", "🖼 Gallery"])
 
 # -----------------------
-# SAFE SHEET READ
+# SAFE READ
 # -----------------------
 def get_verified_data():
     try:
@@ -63,11 +63,7 @@ def get_verified_data():
             return []
         headers = data[0]
         rows = data[1:]
-        result = []
-        for r in rows:
-            row_dict = dict(zip(headers, r))
-            result.append(row_dict)
-        return result
+        return [dict(zip(headers, r)) for r in rows]
     except:
         return []
 
@@ -84,7 +80,6 @@ if menu == "➕ Add PG":
         if len(row) >= 3:
             name = row[1].strip()
             location = row[2].strip()
-
             key = f"{name}|{location}"
 
             if key not in pg_map:
@@ -106,22 +101,60 @@ if menu == "➕ Add PG":
 
     verified = st.selectbox("Verified", ["Select", "Yes", "No"], index=0)
 
+    # -----------------------
+    # SMART UPLOAD UI
+    # -----------------------
+    st.info("📌 Upload only BEST sample photos (not all rooms)")
+
+    MAX_FILES = 5
     categories = ["room", "bath", "food", "dining", "storage", "outside"]
 
     category_inputs = {}
 
     for cat in categories:
         st.subheader(f"📸 {cat.upper()}")
-        files = st.file_uploader(cat, accept_multiple_files=True, key=cat)
+
+        files = st.file_uploader(
+            f"Upload {cat} images (Max {MAX_FILES})",
+            accept_multiple_files=True,
+            key=cat
+        )
+
+        if files and len(files) > MAX_FILES:
+            st.error(f"❌ Max {MAX_FILES} images allowed for {cat}")
+            st.stop()
+
+        # 👀 Preview
+        if files:
+            cols = st.columns(4)
+            for i, file in enumerate(files):
+                with cols[i % 4]:
+                    st.image(file, use_container_width=True)
+
         category_inputs[cat] = files
 
-    st.subheader("🎥 Videos")
-    video_files = st.file_uploader("videos", accept_multiple_files=True)
+    # -----------------------
+    # VIDEOS
+    # -----------------------
+    st.subheader("🎥 Videos (Max 2)")
 
+    video_files = st.file_uploader("Upload videos", accept_multiple_files=True)
+
+    if video_files and len(video_files) > 2:
+        st.error("❌ Max 2 videos allowed")
+        st.stop()
+
+    if video_files:
+        for v in video_files:
+            st.video(v)
+
+    # -----------------------
+    # SAVE
+    # -----------------------
     if st.button("💾 Save PG"):
 
         if verified == "Select":
-            st.error("❌ Please select verification status")
+            st.error("❌ Please select verification")
             st.stop()
 
         all_data = get_verified_data()
@@ -182,7 +215,7 @@ if menu == "➕ Add PG":
             verified_sheet.update_cell(row_index, 3, verified)
             verified_sheet.update_cell(row_index, 4, final_images)
             verified_sheet.update_cell(row_index, 5, final_videos)
-            st.success("🔄 PG Updated Successfully")
+            st.success("🔄 PG Updated")
         else:
             verified_sheet.append_row([
                 name,
@@ -191,13 +224,13 @@ if menu == "➕ Add PG":
                 final_images,
                 final_videos
             ])
-            st.success("✅ New PG Added")
+            st.success("✅ PG Added")
 
         st.session_state.clear()
         st.rerun()
 
 # -----------------------
-# MANAGE PG
+# MANAGE
 # -----------------------
 if menu == "📋 Manage PGs":
 
@@ -229,7 +262,7 @@ if menu == "📋 Manage PGs":
         st.divider()
 
 # -----------------------
-# GALLERY
+# GALLERY GRID UI
 # -----------------------
 if menu == "🖼 Gallery":
 
@@ -245,19 +278,18 @@ if menu == "🖼 Gallery":
         images = str(pg.get("images", "")).split("|")
 
         for block in images:
-
             if ":" in block:
                 try:
                     cat, urls = block.split(":", 1)
-                    urls = urls.split(",")
+                    urls = [u for u in urls.split(",") if u.startswith("http")]
 
-                    st.markdown(f"### 🔹 {cat.upper()}")
+                    if urls:
+                        st.markdown(f"### 🔹 {cat.upper()}")
 
-                    cols = st.columns(3)
-
-                    for i, img in enumerate(urls):
-                        if img.startswith("http"):
-                            cols[i % 3].image(img, use_container_width=True)
+                        cols = st.columns(4)
+                        for i, img in enumerate(urls):
+                            with cols[i % 4]:
+                                st.image(img, use_container_width=True)
 
                 except:
                     continue
@@ -267,7 +299,10 @@ if menu == "🖼 Gallery":
 
         if valid_videos:
             st.markdown("### 🎥 Videos")
-            for v in valid_videos:
-                st.video(v)
+            cols = st.columns(2)
+
+            for i, v in enumerate(valid_videos):
+                with cols[i % 2]:
+                    st.video(v)
 
         st.markdown("---")
