@@ -76,7 +76,7 @@ if menu == "➕ Add PG":
     vid_inputs = {}
 
     MAX_IMAGES = 6
-    MAX_VIDEOS_PER_CAT = 2
+    MAX_VIDEOS = 2
 
     for cat in categories:
         st.subheader(cat.upper())
@@ -91,7 +91,7 @@ if menu == "➕ Add PG":
 
         vids = st.file_uploader(f"{cat} videos", accept_multiple_files=True, key=f"v_{cat}")
 
-        if vids and len(vids) > MAX_VIDEOS_PER_CAT:
+        if vids and len(vids) > MAX_VIDEOS:
             st.error("Max 2 videos per category")
             st.stop()
 
@@ -119,7 +119,6 @@ if menu == "➕ Add PG":
         img_data = []
         vid_data = []
 
-        # Upload images
         for cat, files in img_inputs.items():
             urls = []
             if files:
@@ -129,15 +128,14 @@ if menu == "➕ Add PG":
             if urls:
                 img_data.append(f"{cat}:{','.join(urls)}")
 
-        # Upload videos
         for cat, files in vid_inputs.items():
+            urls = []
             if files:
-                urls = []
                 for f in files:
                     res = cloudinary.uploader.upload(f, resource_type="video")
                     urls.append(res["secure_url"])
-                if urls:
-                    vid_data.append(f"{cat}:{','.join(urls)}")
+            if urls:
+                vid_data.append(f"{cat}:{','.join(urls)}")
 
         def merge(a, b):
             return f"{a}|{b}" if a and b else b or a
@@ -172,7 +170,6 @@ if menu == "📂 Gallery":
         images_raw = str(pg.get("images", "")).split("|")
         videos_raw = str(pg.get("videos", "")).split("|")
 
-        # -------- ALL PHOTOS VIEW --------
         if view == "🖼 All Photos View":
 
             all_imgs = []
@@ -191,7 +188,6 @@ if menu == "📂 Gallery":
                 with cols[i % 3]:
                     st.image(img, use_container_width=True)
 
-        # -------- ALBUM VIEW --------
         else:
 
             album = {}
@@ -219,8 +215,7 @@ if menu == "📂 Gallery":
 
                         st.image(imgs[0], use_container_width=True)
 
-                        if st.button(f"{cat.upper()} ({len(imgs)})", key=f"text_{cat}_{i}") or \
-                           st.button("Open", key=f"img_{cat}_{i}"):
+                        if st.button(f"Open {cat.upper()}", key=f"open_{cat}_{i}"):
 
                             st.session_state["view_mode"] = "album"
                             st.session_state["current_index"] = i
@@ -230,7 +225,6 @@ if menu == "📂 Gallery":
 
                             st.rerun()
 
-            # -------- OPEN ALBUM --------
             if st.session_state.get("view_mode") == "album":
 
                 cats = st.session_state["categories"]
@@ -279,29 +273,34 @@ if menu == "📋 Manage":
 
     data = get_data()
 
-    for i, pg in enumerate(data):
+    if not data:
+        st.info("No PGs found")
+    else:
+        for i, pg in enumerate(data):
 
-        name = pg.get("name")
-        status = pg.get("verified", "No")
+            name = pg.get("name", "No Name")
+            location = pg.get("location", "No Location")
+            status = pg.get("verified", "No")
 
-        st.subheader(name)
+            st.markdown(f"### 🏠 {name}")
+            st.caption(f"📍 {location}")
 
-        if status == "Yes":
-            st.success("✅ Verified")
-        else:
-            st.warning("⏳ Pending")
+            if status == "Yes":
+                st.success("✅ Verified")
+            else:
+                st.warning("⏳ Pending")
 
-        col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2)
 
-        with col1:
-            if status != "Yes":
-                if st.button("Approve", key=f"approve_{i}"):
-                    verified_sheet.update_cell(i + 2, 3, "Yes")
+            with col1:
+                if status != "Yes":
+                    if st.button("✔ Approve", key=f"approve_{i}"):
+                        verified_sheet.update_cell(i + 2, 3, "Yes")
+                        st.rerun()
+
+            with col2:
+                if st.button("❌ Delete", key=f"delete_{i}"):
+                    verified_sheet.delete_rows(i + 2)
                     st.rerun()
 
-        with col2:
-            if st.button("Delete", key=f"delete_{i}"):
-                verified_sheet.delete_rows(i + 2)
-                st.rerun()
-
-        st.divider()
+            st.divider()
