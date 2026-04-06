@@ -74,10 +74,9 @@ if menu == "➕ Add PG":
 
     img_inputs = {}
     vid_inputs = {}
-    total_videos = []
 
     MAX_IMAGES = 6
-    MAX_VIDEOS = 3
+    MAX_VIDEOS_PER_CAT = 2
 
     for cat in categories:
         st.subheader(cat.upper())
@@ -85,21 +84,18 @@ if menu == "➕ Add PG":
         imgs = st.file_uploader(cat, accept_multiple_files=True, key=cat)
 
         if imgs and len(imgs) > MAX_IMAGES:
-            st.error(f"Max {MAX_IMAGES} images")
+            st.error(f"Max {MAX_IMAGES} images allowed")
             st.stop()
 
         img_inputs[cat] = imgs
 
-        vid = st.file_uploader(f"{cat} video", key=f"v_{cat}")
+        vids = st.file_uploader(f"{cat} videos", accept_multiple_files=True, key=f"v_{cat}")
 
-        if vid:
-            total_videos.append(vid)
+        if vids and len(vids) > MAX_VIDEOS_PER_CAT:
+            st.error("Max 2 videos per category")
+            st.stop()
 
-        vid_inputs[cat] = vid
-
-    if len(total_videos) > MAX_VIDEOS:
-        st.error("Max 3 videos total")
-        st.stop()
+        vid_inputs[cat] = vids
 
     if st.button("Save"):
 
@@ -123,7 +119,7 @@ if menu == "➕ Add PG":
         img_data = []
         vid_data = []
 
-        # upload images
+        # Upload images
         for cat, files in img_inputs.items():
             urls = []
             if files:
@@ -133,11 +129,15 @@ if menu == "➕ Add PG":
             if urls:
                 img_data.append(f"{cat}:{','.join(urls)}")
 
-        # upload videos
-        for cat, file in vid_inputs.items():
-            if file:
-                res = cloudinary.uploader.upload(file, resource_type="video")
-                vid_data.append(f"{cat}:{res['secure_url']}")
+        # Upload videos
+        for cat, files in vid_inputs.items():
+            if files:
+                urls = []
+                for f in files:
+                    res = cloudinary.uploader.upload(f, resource_type="video")
+                    urls.append(res["secure_url"])
+                if urls:
+                    vid_data.append(f"{cat}:{','.join(urls)}")
 
         def merge(a, b):
             return f"{a}|{b}" if a and b else b or a
@@ -172,7 +172,7 @@ if menu == "📂 Gallery":
         images_raw = str(pg.get("images", "")).split("|")
         videos_raw = str(pg.get("videos", "")).split("|")
 
-        # ---------------- ALL PHOTOS VIEW ----------------
+        # -------- ALL PHOTOS VIEW --------
         if view == "🖼 All Photos View":
 
             all_imgs = []
@@ -180,8 +180,7 @@ if menu == "📂 Gallery":
             for block in images_raw:
                 parts = block.split(":", 1)
                 if len(parts) == 2:
-                    urls = parts[1].split(",")
-                    for u in urls:
+                    for u in parts[1].split(","):
                         if u.startswith("http"):
                             all_imgs.append(u)
 
@@ -192,21 +191,7 @@ if menu == "📂 Gallery":
                 with cols[i % 3]:
                     st.image(img, use_container_width=True)
 
-            # videos
-            all_vids = []
-            for block in videos_raw:
-                parts = block.split(":", 1)
-                if len(parts) == 2:
-                    url = parts[1]
-                    if url.startswith("http"):
-                        all_vids.append(url)
-
-            if all_vids:
-                st.markdown("### 🎥 Videos")
-                for v in all_vids:
-                    st.video(v)
-
-        # ---------------- ALBUM VIEW ----------------
+        # -------- ALBUM VIEW --------
         else:
 
             album = {}
@@ -216,46 +201,73 @@ if menu == "📂 Gallery":
                 parts = block.split(":", 1)
                 if len(parts) == 2:
                     cat, urls = parts
-                    album.setdefault(cat, []).extend(urls.split(","))
+                    album.setdefault(cat, []).extend([u for u in urls.split(",") if u.startswith("http")])
 
             for block in videos_raw:
                 parts = block.split(":", 1)
                 if len(parts) == 2:
-                    cat, url = parts
-                    videos.setdefault(cat, []).append(url)
+                    cat, urls = parts
+                    videos.setdefault(cat, []).extend([u for u in urls.split(",") if u.startswith("http")])
+
+            categories_list = list(album.keys())
 
             cols = st.columns(3)
 
             for i, (cat, imgs) in enumerate(album.items()):
                 if imgs:
                     with cols[i % 3]:
+
                         if st.button(f"{cat.upper()} ({len(imgs)})", key=f"{cat}_{i}"):
 
-                            st.session_state["cat"] = cat
-                            st.session_state["imgs"] = imgs
-                            st.session_state["vids"] = videos.get(cat, [])
+                            st.session_state["view_mode"] = "album"
+                            st.session_state["current_index"] = i
+                            st.session_state["categories"] = categories_list
+                            st.session_state["album"] = album
+                            st.session_state["videos"] = videos
 
-                        st.image(imgs[0])
+                        st.image(imgs[0], use_container_width=True)
 
-            if "cat" in st.session_state:
+            # -------- OPEN ALBUM --------
+            if st.session_state.get("view_mode") == "album":
+
+                cats = st.session_state["categories"]
+                idx = st.session_state["current_index"]
+
+                cat = cats[idx]
+                imgs = st.session_state["album"].get(cat, [])
+                vids = st.session_state["videos"].get(cat, [])
 
                 st.markdown("---")
-                st.subheader(st.session_state["cat"].upper())
+                st.subheader(f"📸 {cat.upper()}")
 
                 cols = st.columns(3)
-
-                for i, img in enumerate(st.session_state["imgs"]):
+                for i, img in enumerate(imgs):
                     with cols[i % 3]:
-                        st.image(img)
+                        st.image(img, use_container_width=True)
 
-                if st.session_state["vids"]:
-                    st.markdown("🎥 Videos")
-                    for v in st.session_state["vids"]:
+                if vids:
+                    st.markdown("### 🎥 Videos")
+                    for v in vids:
                         st.video(v)
 
-                if st.button("Back"):
-                    st.session_state.clear()
-                    st.rerun()
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    if st.button("⬅ Back"):
+                        st.session_state.clear()
+                        st.rerun()
+
+                with col2:
+                    if idx > 0:
+                        if st.button("⬅ Previous"):
+                            st.session_state["current_index"] -= 1
+                            st.rerun()
+
+                with col3:
+                    if idx < len(cats) - 1:
+                        if st.button("Next ➡"):
+                            st.session_state["current_index"] += 1
+                            st.rerun()
 
 # ---------------- MANAGE ----------------
 if menu == "📋 Manage":
