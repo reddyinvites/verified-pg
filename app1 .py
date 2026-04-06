@@ -54,7 +54,25 @@ st.sidebar.title("☰ Menu")
 menu = st.sidebar.radio("Go to", ["➕ Add PG", "📋 Manage PGs", "🖼 Gallery"])
 
 # -----------------------
-# ADD PG (GROUPED)
+# SAFE SHEET READ
+# -----------------------
+def get_verified_data():
+    try:
+        data = verified_sheet.get_all_values()
+        if not data:
+            return []
+        headers = data[0]
+        rows = data[1:]
+        result = []
+        for r in rows:
+            row_dict = dict(zip(headers, r))
+            result.append(row_dict)
+        return result
+    except:
+        return []
+
+# -----------------------
+# ADD PG
 # -----------------------
 if menu == "➕ Add PG":
 
@@ -86,7 +104,6 @@ if menu == "➕ Add PG":
     st.text_input("Name", value=name, disabled=True)
     st.text_input("Location", value=location, disabled=True)
 
-    # ✅ VERIFIED FIX
     verified = st.selectbox("Verified", ["Select", "Yes", "No"], index=0)
 
     categories = ["room", "bath", "food", "dining", "storage", "outside"]
@@ -101,20 +118,18 @@ if menu == "➕ Add PG":
     st.subheader("🎥 Videos")
     video_files = st.file_uploader("videos", accept_multiple_files=True)
 
-    # ---------------- SAVE ----------------
     if st.button("💾 Save PG"):
 
         if verified == "Select":
             st.error("❌ Please select verification status")
             st.stop()
 
-        all_data = verified_sheet.get_all_records()
+        all_data = get_verified_data()
 
         row_index = None
         existing_images = ""
         existing_videos = ""
 
-        # 🔍 FIND EXISTING PG
         for i, row in enumerate(all_data):
             if row.get("name") == name and row.get("location") == location:
                 row_index = i + 2
@@ -124,29 +139,34 @@ if menu == "➕ Add PG":
 
         category_data = []
 
-        # 📸 UPLOAD IMAGES
+        # Upload images
         for cat, files in category_inputs.items():
             urls = []
             if files:
                 for file in files:
-                    res = cloudinary.uploader.upload(file)
-                    urls.append(res["secure_url"])
+                    try:
+                        res = cloudinary.uploader.upload(file)
+                        urls.append(res["secure_url"])
+                    except:
+                        pass
 
             if urls:
                 category_data.append(f"{cat}:{','.join(urls)}")
 
         new_images = "|".join(category_data)
 
-        # 🎥 UPLOAD VIDEOS
+        # Upload videos
         video_urls = []
         if video_files:
             for file in video_files:
-                res = cloudinary.uploader.upload(file, resource_type="video")
-                video_urls.append(res["secure_url"])
+                try:
+                    res = cloudinary.uploader.upload(file, resource_type="video")
+                    video_urls.append(res["secure_url"])
+                except:
+                    pass
 
         new_videos = "|".join(video_urls)
 
-        # 🔗 MERGE FUNCTION
         def merge(old, new):
             if old and new:
                 return old + "|" + new
@@ -158,14 +178,11 @@ if menu == "➕ Add PG":
         final_images = merge(existing_images, new_images)
         final_videos = merge(existing_videos, new_videos)
 
-        # ✏️ UPDATE OR ADD
         if row_index:
             verified_sheet.update_cell(row_index, 3, verified)
             verified_sheet.update_cell(row_index, 4, final_images)
             verified_sheet.update_cell(row_index, 5, final_videos)
-
             st.success("🔄 PG Updated Successfully")
-
         else:
             verified_sheet.append_row([
                 name,
@@ -174,7 +191,6 @@ if menu == "➕ Add PG":
                 final_images,
                 final_videos
             ])
-
             st.success("✅ New PG Added")
 
         st.session_state.clear()
@@ -187,7 +203,7 @@ if menu == "📋 Manage PGs":
 
     st.header("📋 Manage PGs")
 
-    data = verified_sheet.get_all_records()
+    data = get_verified_data()
 
     for i, pg in enumerate(data):
 
@@ -219,7 +235,7 @@ if menu == "🖼 Gallery":
 
     st.header("🖼 PG Gallery")
 
-    data = verified_sheet.get_all_records()
+    data = get_verified_data()
 
     for pg in data:
 
@@ -246,7 +262,6 @@ if menu == "🖼 Gallery":
                 except:
                     continue
 
-        # 🎥 VIDEOS
         videos = str(pg.get("videos", "")).split("|")
         valid_videos = [v for v in videos if v.startswith("http")]
 
