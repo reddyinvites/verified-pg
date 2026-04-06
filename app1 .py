@@ -48,10 +48,9 @@ if password != "1234":
 st.success("✅ Logged in")
 
 # -----------------------
-# SIDEBAR
+# MENU
 # -----------------------
-st.sidebar.title("☰ Menu")
-menu = st.sidebar.radio("Go to", ["➕ Add PG", "📂 Albums", "📋 Manage PGs"])
+menu = st.sidebar.radio("Menu", ["➕ Add PG", "📂 Albums", "📋 Manage"])
 
 # -----------------------
 # SAFE READ
@@ -74,22 +73,11 @@ if menu == "➕ Add PG":
 
     pg_rows = pg_sheet.get_all_values()
 
-    pg_map = {}
+    options = list(set([f"{r[1]}|{r[2]}" for r in pg_rows[1:] if len(r) >= 3]))
 
-    for row in pg_rows[1:]:
-        if len(row) >= 3:
-            name = row[1].strip()
-            location = row[2].strip()
-            key = f"{name}|{location}"
+    selected = st.selectbox("Select PG", ["Select"] + options)
 
-            if key not in pg_map:
-                pg_map[key] = []
-
-            pg_map[key].append(row)
-
-    selected = st.selectbox("Select PG", ["Select PG"] + list(pg_map.keys()))
-
-    if selected == "Select PG":
+    if selected == "Select":
         st.stop()
 
     name, location = selected.split("|")
@@ -99,51 +87,34 @@ if menu == "➕ Add PG":
 
     verified = st.selectbox("Verified", ["Select", "Yes", "No"])
 
-    st.info("📌 Upload best sample photos only")
-
-    MAX_FILES = 5
     categories = ["room", "bath", "food", "dining", "storage", "outside"]
 
-    category_inputs = {}
-    video_inputs = {}
+    img_inputs = {}
+    vid_inputs = {}
 
     for cat in categories:
-        st.subheader(f"📸 {cat.upper()}")
+        st.subheader(cat.upper())
 
-        files = st.file_uploader(cat, accept_multiple_files=True, key=cat)
+        imgs = st.file_uploader(cat, accept_multiple_files=True, key=cat)
+        img_inputs[cat] = imgs
 
-        if files and len(files) > MAX_FILES:
-            st.error("Max 5 images")
-            st.stop()
+        vid = st.file_uploader(f"{cat} video", key=f"v_{cat}")
+        vid_inputs[cat] = vid
 
-        if files:
-            cols = st.columns(4)
-            for i, f in enumerate(files):
-                with cols[i % 4]:
-                    st.image(f)
-
-        category_inputs[cat] = files
-
-        # 🎥 video per category
-        vids = st.file_uploader(f"{cat} video (1 max)", key=f"vid_{cat}")
-
-        video_inputs[cat] = vids
-
-    # SAVE
-    if st.button("💾 Save PG"):
+    if st.button("Save"):
 
         if verified == "Select":
             st.error("Select verification")
             st.stop()
 
-        all_data = get_verified_data()
+        data = get_verified_data()
 
         row_index = None
         old_img = ""
         old_vid = ""
 
-        for i, r in enumerate(all_data):
-            if r.get("name") == name and r.get("location") == location:
+        for i, r in enumerate(data):
+            if r.get("name") == name:
                 row_index = i + 2
                 old_img = r.get("images", "")
                 old_vid = r.get("videos", "")
@@ -153,7 +124,7 @@ if menu == "➕ Add PG":
         vid_data = []
 
         # upload images
-        for cat, files in category_inputs.items():
+        for cat, files in img_inputs.items():
             urls = []
             if files:
                 for f in files:
@@ -163,7 +134,7 @@ if menu == "➕ Add PG":
                 img_data.append(f"{cat}:{','.join(urls)}")
 
         # upload videos
-        for cat, file in video_inputs.items():
+        for cat, file in vid_inputs.items():
             if file:
                 res = cloudinary.uploader.upload(file, resource_type="video")
                 vid_data.append(f"{cat}:{res['secure_url']}")
@@ -178,15 +149,14 @@ if menu == "➕ Add PG":
             verified_sheet.update_cell(row_index, 3, verified)
             verified_sheet.update_cell(row_index, 4, final_img)
             verified_sheet.update_cell(row_index, 5, final_vid)
-            st.success("Updated")
         else:
             verified_sheet.append_row([name, location, verified, final_img, final_vid])
-            st.success("Added")
 
+        st.success("Saved")
         st.rerun()
 
 # -----------------------
-# ALBUM VIEW
+# ALBUMS
 # -----------------------
 if menu == "📂 Albums":
 
@@ -200,19 +170,39 @@ if menu == "📂 Albums":
         st.caption(pg.get("location"))
 
         album = {}
+        videos = {}
 
-        # images
+        # SAFE IMAGE PARSE
         for block in str(pg.get("images", "")).split("|"):
-            if ":" in block:
-                cat, urls = block.split(":")
-                album.setdefault(cat, []).extend(urls.split(","))
 
-        # videos
-        vid_map = {}
+            if not block.strip():
+                continue
+
+            parts = block.split(":", 1)
+
+            if len(parts) != 2:
+                continue
+
+            cat, urls = parts
+            urls = [u for u in urls.split(",") if u.startswith("http")]
+
+            album.setdefault(cat, []).extend(urls)
+
+        # SAFE VIDEO PARSE
         for block in str(pg.get("videos", "")).split("|"):
-            if ":" in block:
-                cat, url = block.split(":")
-                vid_map.setdefault(cat, []).append(url)
+
+            if not block.strip():
+                continue
+
+            parts = block.split(":", 1)
+
+            if len(parts) != 2:
+                continue
+
+            cat, url = parts
+
+            if url.startswith("http"):
+                videos.setdefault(cat, []).append(url)
 
         cols = st.columns(3)
 
@@ -220,43 +210,42 @@ if menu == "📂 Albums":
             if imgs:
                 with cols[i % 3]:
                     if st.button(f"{cat.upper()} ({len(imgs)})", key=f"{cat}_{i}"):
-                        st.session_state["album"] = cat
+
+                        st.session_state["cat"] = cat
                         st.session_state["imgs"] = imgs
-                        st.session_state["vids"] = vid_map.get(cat, [])
+                        st.session_state["vids"] = videos.get(cat, [])
 
                     st.image(imgs[0])
 
-        # open album
-        if "album" in st.session_state:
+        # OPEN ALBUM
+        if "cat" in st.session_state:
 
             st.markdown("---")
-            st.subheader(st.session_state["album"].upper())
+            st.subheader(st.session_state["cat"].upper())
 
             cols = st.columns(3)
+
             for i, img in enumerate(st.session_state["imgs"]):
                 with cols[i % 3]:
                     st.image(img)
 
             if st.session_state["vids"]:
-                st.markdown("### 🎥 Videos")
+                st.markdown("🎥 Videos")
                 for v in st.session_state["vids"]:
                     st.video(v)
 
-            if st.button("🔙 Back"):
+            if st.button("Back"):
                 st.session_state.clear()
                 st.rerun()
 
 # -----------------------
 # MANAGE
 # -----------------------
-if menu == "📋 Manage PGs":
-
-    st.header("Manage PGs")
+if menu == "📋 Manage":
 
     data = get_verified_data()
 
     for i, pg in enumerate(data):
-
         st.write(pg.get("name"))
 
         if st.button("Delete", key=i):
