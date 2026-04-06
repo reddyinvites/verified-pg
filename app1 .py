@@ -6,9 +6,7 @@ import cloudinary.uploader
 
 st.set_page_config(page_title="PG Admin", layout="wide")
 
-# -----------------------
-# CONFIG
-# -----------------------
+# ---------------- CONFIG ----------------
 cloudinary.config(
     cloud_name=st.secrets["cloudinary"]["cloud_name"],
     api_key=st.secrets["cloudinary"]["api_key"],
@@ -26,54 +24,39 @@ gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
 creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
 client = gspread.authorize(creds)
 
-# -----------------------
-# SHEETS
-# -----------------------
 PG_DATA_ID = "1y60dTYBKgkOi7J37jtGK4BkkmUoZF8yD4P5J3xA5q6Q"
 VERIFIED_ID = "191Fg2-jLtpvziqFrUdQNV2ki1iXYe_fdTGYv3_Tm7wA"
 
 pg_sheet = client.open_by_key(PG_DATA_ID).worksheet("Sheet1")
 verified_sheet = client.open_by_key(VERIFIED_ID).worksheet("verified_pg")
 
-# -----------------------
-# LOGIN
-# -----------------------
+# ---------------- LOGIN ----------------
 st.title("👨‍💼 Admin Panel")
 
 password = st.text_input("Password", type="password")
-
 if password != "1234":
     st.stop()
 
 st.success("✅ Logged in")
 
-# -----------------------
-# MENU
-# -----------------------
-menu = st.sidebar.radio("Menu", ["➕ Add PG", "📂 Albums", "📋 Manage"])
+menu = st.sidebar.radio("Menu", ["➕ Add PG", "📂 Gallery", "📋 Manage"])
 
-# -----------------------
-# SAFE READ
-# -----------------------
-def get_verified_data():
+# ---------------- SAFE READ ----------------
+def get_data():
     try:
         data = verified_sheet.get_all_values()
         if not data:
             return []
         headers = data[0]
-        rows = data[1:]
-        return [dict(zip(headers, r)) for r in rows]
+        return [dict(zip(headers, r)) for r in data[1:]]
     except:
         return []
 
-# -----------------------
-# ADD PG
-# -----------------------
+# ---------------- ADD PG ----------------
 if menu == "➕ Add PG":
 
-    pg_rows = pg_sheet.get_all_values()
-
-    options = list(set([f"{r[1]}|{r[2]}" for r in pg_rows[1:] if len(r) >= 3]))
+    rows = pg_sheet.get_all_values()
+    options = list(set([f"{r[1]}|{r[2]}" for r in rows[1:] if len(r) >= 3]))
 
     selected = st.selectbox("Select PG", ["Select"] + options)
 
@@ -91,15 +74,32 @@ if menu == "➕ Add PG":
 
     img_inputs = {}
     vid_inputs = {}
+    total_videos = []
+
+    MAX_IMAGES = 6
+    MAX_VIDEOS = 3
 
     for cat in categories:
         st.subheader(cat.upper())
 
         imgs = st.file_uploader(cat, accept_multiple_files=True, key=cat)
+
+        if imgs and len(imgs) > MAX_IMAGES:
+            st.error(f"Max {MAX_IMAGES} images")
+            st.stop()
+
         img_inputs[cat] = imgs
 
         vid = st.file_uploader(f"{cat} video", key=f"v_{cat}")
+
+        if vid:
+            total_videos.append(vid)
+
         vid_inputs[cat] = vid
+
+    if len(total_videos) > MAX_VIDEOS:
+        st.error("Max 3 videos total")
+        st.stop()
 
     if st.button("Save"):
 
@@ -107,7 +107,7 @@ if menu == "➕ Add PG":
             st.error("Select verification")
             st.stop()
 
-        data = get_verified_data()
+        data = get_data()
 
         row_index = None
         old_img = ""
@@ -155,95 +155,112 @@ if menu == "➕ Add PG":
         st.success("Saved")
         st.rerun()
 
-# -----------------------
-# ALBUMS
-# -----------------------
-if menu == "📂 Albums":
+# ---------------- GALLERY ----------------
+if menu == "📂 Gallery":
 
-    st.header("📂 PG Albums")
+    st.header("📂 PG Gallery")
 
-    data = get_verified_data()
+    data = get_data()
+
+    view = st.selectbox("View Mode", ["📂 Albums View", "🖼 All Photos View"])
 
     for pg in data:
 
         st.subheader(pg.get("name"))
         st.caption(pg.get("location"))
 
-        album = {}
-        videos = {}
+        images_raw = str(pg.get("images", "")).split("|")
+        videos_raw = str(pg.get("videos", "")).split("|")
 
-        # SAFE IMAGE PARSE
-        for block in str(pg.get("images", "")).split("|"):
+        # ---------------- ALL PHOTOS VIEW ----------------
+        if view == "🖼 All Photos View":
 
-            if not block.strip():
-                continue
+            all_imgs = []
 
-            parts = block.split(":", 1)
+            for block in images_raw:
+                parts = block.split(":", 1)
+                if len(parts) == 2:
+                    urls = parts[1].split(",")
+                    for u in urls:
+                        if u.startswith("http"):
+                            all_imgs.append(u)
 
-            if len(parts) != 2:
-                continue
+            all_imgs = list(dict.fromkeys(all_imgs))
 
-            cat, urls = parts
-            urls = [u for u in urls.split(",") if u.startswith("http")]
-
-            album.setdefault(cat, []).extend(urls)
-
-        # SAFE VIDEO PARSE
-        for block in str(pg.get("videos", "")).split("|"):
-
-            if not block.strip():
-                continue
-
-            parts = block.split(":", 1)
-
-            if len(parts) != 2:
-                continue
-
-            cat, url = parts
-
-            if url.startswith("http"):
-                videos.setdefault(cat, []).append(url)
-
-        cols = st.columns(3)
-
-        for i, (cat, imgs) in enumerate(album.items()):
-            if imgs:
+            cols = st.columns(3)
+            for i, img in enumerate(all_imgs):
                 with cols[i % 3]:
-                    if st.button(f"{cat.upper()} ({len(imgs)})", key=f"{cat}_{i}"):
+                    st.image(img, use_container_width=True)
 
-                        st.session_state["cat"] = cat
-                        st.session_state["imgs"] = imgs
-                        st.session_state["vids"] = videos.get(cat, [])
+            # videos
+            all_vids = []
+            for block in videos_raw:
+                parts = block.split(":", 1)
+                if len(parts) == 2:
+                    url = parts[1]
+                    if url.startswith("http"):
+                        all_vids.append(url)
 
-                    st.image(imgs[0])
+            if all_vids:
+                st.markdown("### 🎥 Videos")
+                for v in all_vids:
+                    st.video(v)
 
-        # OPEN ALBUM
-        if "cat" in st.session_state:
+        # ---------------- ALBUM VIEW ----------------
+        else:
 
-            st.markdown("---")
-            st.subheader(st.session_state["cat"].upper())
+            album = {}
+            videos = {}
+
+            for block in images_raw:
+                parts = block.split(":", 1)
+                if len(parts) == 2:
+                    cat, urls = parts
+                    album.setdefault(cat, []).extend(urls.split(","))
+
+            for block in videos_raw:
+                parts = block.split(":", 1)
+                if len(parts) == 2:
+                    cat, url = parts
+                    videos.setdefault(cat, []).append(url)
 
             cols = st.columns(3)
 
-            for i, img in enumerate(st.session_state["imgs"]):
-                with cols[i % 3]:
-                    st.image(img)
+            for i, (cat, imgs) in enumerate(album.items()):
+                if imgs:
+                    with cols[i % 3]:
+                        if st.button(f"{cat.upper()} ({len(imgs)})", key=f"{cat}_{i}"):
 
-            if st.session_state["vids"]:
-                st.markdown("🎥 Videos")
-                for v in st.session_state["vids"]:
-                    st.video(v)
+                            st.session_state["cat"] = cat
+                            st.session_state["imgs"] = imgs
+                            st.session_state["vids"] = videos.get(cat, [])
 
-            if st.button("Back"):
-                st.session_state.clear()
-                st.rerun()
+                        st.image(imgs[0])
 
-# -----------------------
-# MANAGE
-# -----------------------
+            if "cat" in st.session_state:
+
+                st.markdown("---")
+                st.subheader(st.session_state["cat"].upper())
+
+                cols = st.columns(3)
+
+                for i, img in enumerate(st.session_state["imgs"]):
+                    with cols[i % 3]:
+                        st.image(img)
+
+                if st.session_state["vids"]:
+                    st.markdown("🎥 Videos")
+                    for v in st.session_state["vids"]:
+                        st.video(v)
+
+                if st.button("Back"):
+                    st.session_state.clear()
+                    st.rerun()
+
+# ---------------- MANAGE ----------------
 if menu == "📋 Manage":
 
-    data = get_verified_data()
+    data = get_data()
 
     for i, pg in enumerate(data):
         st.write(pg.get("name"))
