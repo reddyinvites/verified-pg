@@ -217,7 +217,10 @@ if menu == "📂 Gallery":
                 if imgs:
                     with cols[i % 3]:
 
-                        if st.button(f"{cat.upper()} ({len(imgs)})", key=f"{cat}_{i}"):
+                        st.image(imgs[0], use_container_width=True)
+
+                        if st.button(f"{cat.upper()} ({len(imgs)})", key=f"text_{cat}_{i}") or \
+                           st.button("Open", key=f"img_{cat}_{i}"):
 
                             st.session_state["view_mode"] = "album"
                             st.session_state["current_index"] = i
@@ -225,7 +228,7 @@ if menu == "📂 Gallery":
                             st.session_state["album"] = album
                             st.session_state["videos"] = videos
 
-                        st.image(imgs[0], use_container_width=True)
+                            st.rerun()
 
             # -------- OPEN ALBUM --------
             if st.session_state.get("view_mode") == "album":
@@ -272,11 +275,33 @@ if menu == "📂 Gallery":
 # ---------------- MANAGE ----------------
 if menu == "📋 Manage":
 
+    st.header("📋 Manage PGs")
+
     data = get_data()
 
     for i, pg in enumerate(data):
-        st.write(pg.get("name"))
 
-        if st.button("Delete", key=i):
-            verified_sheet.delete_rows(i + 2)
-            st.rerun()
+        name = pg.get("name")
+        status = pg.get("verified", "No")
+
+        st.subheader(name)
+
+        if status == "Yes":
+            st.success("✅ Verified")
+        else:
+            st.warning("⏳ Pending")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if status != "Yes":
+                if st.button("Approve", key=f"approve_{i}"):
+                    verified_sheet.update_cell(i + 2, 3, "Yes")
+                    st.rerun()
+
+        with col2:
+            if st.button("Delete", key=f"delete_{i}"):
+                verified_sheet.delete_rows(i + 2)
+                st.rerun()
+
+        st.divider()
