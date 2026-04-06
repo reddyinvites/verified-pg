@@ -7,6 +7,19 @@ import cloudinary.uploader
 st.set_page_config(page_title="PG Admin", layout="wide")
 
 # -----------------------
+# STYLE (INSTAGRAM GRID)
+# -----------------------
+st.markdown("""
+<style>
+img {
+    aspect-ratio: 1/1;
+    object-fit: cover;
+    border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# -----------------------
 # CONFIG
 # -----------------------
 cloudinary.config(
@@ -101,9 +114,6 @@ if menu == "➕ Add PG":
 
     verified = st.selectbox("Verified", ["Select", "Yes", "No"], index=0)
 
-    # -----------------------
-    # SMART UPLOAD UI
-    # -----------------------
     st.info("📌 Upload only BEST sample photos (not all rooms)")
 
     MAX_FILES = 5
@@ -124,7 +134,6 @@ if menu == "➕ Add PG":
             st.error(f"❌ Max {MAX_FILES} images allowed for {cat}")
             st.stop()
 
-        # 👀 Preview
         if files:
             cols = st.columns(4)
             for i, file in enumerate(files):
@@ -133,11 +142,8 @@ if menu == "➕ Add PG":
 
         category_inputs[cat] = files
 
-    # -----------------------
     # VIDEOS
-    # -----------------------
     st.subheader("🎥 Videos (Max 2)")
-
     video_files = st.file_uploader("Upload videos", accept_multiple_files=True)
 
     if video_files and len(video_files) > 2:
@@ -148,9 +154,7 @@ if menu == "➕ Add PG":
         for v in video_files:
             st.video(v)
 
-    # -----------------------
     # SAVE
-    # -----------------------
     if st.button("💾 Save PG"):
 
         if verified == "Select":
@@ -262,7 +266,7 @@ if menu == "📋 Manage PGs":
         st.divider()
 
 # -----------------------
-# GALLERY GRID UI
+# INSTAGRAM STYLE GALLERY
 # -----------------------
 if menu == "🖼 Gallery":
 
@@ -275,30 +279,40 @@ if menu == "🖼 Gallery":
         st.markdown(f"## 🏠 {pg.get('name')}")
         st.caption(f"📍 {pg.get('location')}")
 
-        images = str(pg.get("images", "")).split("|")
+        # 🔥 MERGE ALL IMAGES
+        all_images = []
 
-        for block in images:
+        raw = str(pg.get("images", "")).split("|")
+
+        for block in raw:
             if ":" in block:
                 try:
-                    cat, urls = block.split(":", 1)
-                    urls = [u for u in urls.split(",") if u.startswith("http")]
+                    _, urls = block.split(":", 1)
+                    urls = urls.split(",")
 
-                    if urls:
-                        st.markdown(f"### 🔹 {cat.upper()}")
-
-                        cols = st.columns(4)
-                        for i, img in enumerate(urls):
-                            with cols[i % 4]:
-                                st.image(img, use_container_width=True)
-
+                    for u in urls:
+                        if u.startswith("http"):
+                            all_images.append(u)
                 except:
                     continue
 
+        # remove duplicates
+        all_images = list(dict.fromkeys(all_images))
+
+        # 🎯 GRID (3 columns)
+        cols = st.columns(3)
+
+        for i, img in enumerate(all_images):
+            with cols[i % 3]:
+                st.image(img, use_container_width=True)
+
+        # 🎥 VIDEOS
         videos = str(pg.get("videos", "")).split("|")
         valid_videos = [v for v in videos if v.startswith("http")]
 
         if valid_videos:
             st.markdown("### 🎥 Videos")
+
             cols = st.columns(2)
 
             for i, v in enumerate(valid_videos):
